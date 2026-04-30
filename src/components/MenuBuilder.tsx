@@ -65,6 +65,16 @@ export default function MenuBuilder({
     return mode === 'ramadan' ? 'iftar' : 'lunch';
   };
 
+  const getMealTypeFromTextStrict = (t: string): MealType | undefined => {
+    const s = String(t || '').trim().toLowerCase();
+    if (s.includes('سحور')) return 'suhoor';
+    if (s.includes('إفطار') || s.includes('افطار')) return 'iftar';
+    if (s.includes('عشاء')) return 'dinner';
+    if (s.includes('غداء') || s.includes('غذا')) return 'lunch';
+    if (s.includes('فطور') || s.includes('صباح')) return mode === 'ramadan' ? 'iftar' : 'breakfast';
+    return undefined;
+  };
+
   const handleMenuExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -74,17 +84,75 @@ export default function MenuBuilder({
       const ws = wb.Sheets[wb.SheetNames[0]];
       const json: any[] = xlsx.utils.sheet_to_json(ws, { header: 1 });
       const map = new Map<string, Meal>();
+      let currentDay: DayOfWeek = 'monday';
+      let currentType: MealType = mode === 'ramadan' ? 'iftar' : 'breakfast';
+
       json.forEach((row: any) => {
-        if (!Array.isArray(row) || row.length < 3) return;
-        const ingNameRaw = String(row[2]).trim();
-        if (!ingNameRaw || ingNameRaw === 'المادة' || ingNameRaw === 'المكون') return;
-        const day = getDayFromText(row[0]) || 'monday';
-        const type = getMealTypeFromText(row[1]);
-        const key = `${day}-${type}`;
-        if (!map.has(key)) map.set(key, {
-          id: generateId(), day, type,
-          name: `${mealTypeLabels[type]} - ${daysLabels[day]}`, ingredients: []
-        });
+        if (!Array.isArray(row) || row.length === 0) return;
+        
+        // Clean cells
+        const cells = row.map(c => String(c === undefined || c === null ? '' : c).trim());
+        if (cells.every(c => !c)) return;
+
+        // Check for explicit Day or MealType anywhere in the row (useful for merged cells or sequential lists)
+        let foundExplicitDay = false;
+        let foundExplicitType = false;
+
+        for (const c of cells) {
+          if (!c) continue;
+          const d = getDayFromText(c);
+          if (d) { currentDay = d; foundExplicitDay = true; }
+          const t = getMealTypeFromTextStrict(c);
+          if (t) { currentType = t; foundExplicitType = true; }
+        }
+
+        // Try extracting ingredient, quantity, and unit using smart discovery
+        // Skip common headers
+        const headerWords = ['المادة', 'المكون', 'الكمية', 'الوحدة', 'اليوم', 'الوجبة', 'البيان', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الاحد', 'الأحد', 'فطور', 'غداء', 'عشاء', 'سحور', 'افطار', 'إفطار'];
+        
+        let candidateStringCells: string[] = [];
+        let candidateNumCells: number[] = [];
+
+        for (let i = 0; i < cells.length; i++) {
+           const c = cells[i];
+           if (!c) continue;
+           
+           const num = parseFloat(c);
+           // If the cell contains numbers and no significant text, treat as quantity
+           if (!isNaN(num) && /^[\d.,\s]+$/.test(c)) {
+               candidateNumCells.push(num);
+               continue;
+           }
+           
+           // It's a string
+           if (getDayFromText(c) || getMealTypeFromTextStrict(c)) continue; // Day/meal marker
+           if (headerWords.some(w => c === w || (c.includes(w) && c.length < w.length + 5))) continue; // Header
+           
+           candidateStringCells.push(c);
+        }
+
+        // If no string cell is found, this row might just be Day/Meal markers. Skip adding ingredients.
+        if (candidateStringCells.length === 0) return;
+
+        // Old format compatibility (if column 2 exists and isn't a known header)
+        let ingNameRaw = candidateStringCells[0]; // best guess
+        
+        // Check if the file matches standard old format: row[0]=Day, row[1]=Meal, row[2]=Ingredient, row[3]=Qty
+        if (cells.length > 2 && cells[2] && !headerWords.includes(cells[2]) && !getDayFromText(cells[2]) && !getMealTypeFromTextStrict(cells[2])) {
+           if (cells[2].length > 1) {
+              ingNameRaw = cells[2]; 
+           }
+        }
+
+        if (!ingNameRaw) return;
+
+        const key = `${currentDay}-${currentType}`;
+        if (!map.has(key)) {
+           map.set(key, {
+              id: generateId(), day: currentDay, type: currentType,
+              name: `${mealTypeLabels[currentType]} - ${daysLabels[currentDay]}`, ingredients: []
+           });
+        }
         
         // Split combined ingredients (e.g., "شاي، زيت زيتون، جبن")
         const ingNames = ingNameRaw.split(/[,،+\-\n]| و /).map(s => s.trim()).filter(s => s.length > 0);
@@ -95,8 +163,15 @@ export default function MenuBuilder({
           
           // Only use explicit row quantity if there was a single ingredient in the cell
           if (ingNames.length === 1) {
-            qty = row[3] ? parseFloat(row[3]) : 0;
-            unit = row[4] ? String(row[4]).trim() : '';
+            qty = candidateNumCells.length > 0 ? candidateNumCells[0] : 0;
+            if (!qty && cells.length > 3) qty = parseFloat(cells[3]) || 0;
+            
+            // Try extracting unit
+            if (candidateStringCells.length > 1 && candidateStringCells[0] === ingName) {
+               unit = candidateStringCells[1];
+            } else if (cells.length > 4) {
+               unit = cells[4];
+            }
           }
 
           map.get(key)!.ingredients.push({ id: generateId(), name: ingName, quantityPerPerson: qty, unit });
