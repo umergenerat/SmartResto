@@ -79,7 +79,7 @@ export const analyzeMenuDocument = async (
 
     onProgress?.('جاري تحليل المحتوى باستخدام الذكاء الاصطناعي...');
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-1.5-flash',
       contents: prompt + "\n\n" + excelText,
       config: { responseMimeType: "application/json" }
     });
@@ -102,7 +102,7 @@ export const analyzeMenuDocument = async (
           onProgress?.('جاري تحليل المحتوى باستخدام الذكاء الاصطناعي...');
           
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-1.5-flash',
             contents: [
               prompt,
               {
@@ -176,7 +176,7 @@ export const analyzeDishImage = async (
         `;
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-1.5-flash',
           contents: [
             prompt,
             {

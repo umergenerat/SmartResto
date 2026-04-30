@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Meal, Beneficiaries, ScheduleMode, TotalsResult, DetailedResult, DayOfWeek, MealType, ReferenceIngredient, DishEvaluation } from './types';
+import { Meal, Beneficiaries, ScheduleMode, TotalsResult, DetailedResult, DayOfWeek, MealType, ReferenceIngredient, DishEvaluation, ApiSettings } from './types';
 import { analyzeMenuDocument, analyzeDishImage } from './lib/gemini';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -104,12 +104,20 @@ export default function App() {
     } catch { return defaultPDFIngredients; }
   });
 
+  const [apiSettings, setApiSettings] = useState<ApiSettings>(() => {
+    try {
+      const s = localStorage.getItem('apiSettings');
+      return s ? JSON.parse(s) : { apiKey: '', useOpenModel: false };
+    } catch { return { apiKey: '', useOpenModel: false }; }
+  });
+
   React.useEffect(() => {
     localStorage.setItem('mode', JSON.stringify(mode));
     localStorage.setItem('beneficiaries', JSON.stringify(beneficiaries));
     localStorage.setItem('meals', JSON.stringify(meals));
     localStorage.setItem('refIngredients', JSON.stringify(referenceIngredients));
-  }, [mode, beneficiaries, meals, referenceIngredients]);
+    localStorage.setItem('apiSettings', JSON.stringify(apiSettings));
+  }, [mode, beneficiaries, meals, referenceIngredients, apiSettings]);
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [filterDay, setFilterDay] = useState<DayOfWeek | 'all'>('all');
@@ -139,8 +147,8 @@ export default function App() {
     setUploadMsg('جاري تحضير الملف...');
     setAiError('');
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error('مفتاح API غير متوفر');
+      const apiKey = apiSettings.apiKey;
+      if (!apiKey && !apiSettings.useOpenModel) throw new Error('مفتاح API غير متوفر');
       const extracted = await analyzeMenuDocument(file, apiKey, setUploadMsg);
       if (extracted.length > 0) {
         const enriched = extracted.map(m => ({
@@ -185,8 +193,8 @@ export default function App() {
     setEvalErrorMsg('');
     setEvalResult(null);
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error('مفتاح API غير متوفر');
+      const apiKey = apiSettings.apiKey;
+      if (!apiKey && !apiSettings.useOpenModel) throw new Error('مفتاح API غير متوفر');
       const refMeal = meals.find(m => m.id === evalReferenceMealId) || null;
       const result = await analyzeDishImage(evalImage, refMeal, apiKey, setUploadMsg);
       setEvalResult(result);
@@ -316,6 +324,8 @@ export default function App() {
             beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries}
             referenceIngredients={referenceIngredients}
             setReferenceIngredients={setReferenceIngredients}
+            apiSettings={apiSettings}
+            setApiSettings={setApiSettings}
             onNext={() => setActiveTab('menu')}
           />
         )}

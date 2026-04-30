@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Settings, CalendarDays, UtensilsCrossed, Plus, ListPlus, FileUp, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { Beneficiaries, ScheduleMode, ReferenceIngredient } from '../types';
+import { Settings, CalendarDays, UtensilsCrossed, Plus, ListPlus, FileUp, Trash2, ChevronDown, ChevronUp, Cpu, Key, Bot } from 'lucide-react';
+import { Beneficiaries, ScheduleMode, ReferenceIngredient, ApiSettings } from '../types';
 import * as xlsx from 'xlsx';
 
 interface ConfigPanelProps {
@@ -10,6 +10,8 @@ interface ConfigPanelProps {
   setBeneficiaries: (b: Beneficiaries) => void;
   referenceIngredients: ReferenceIngredient[];
   setReferenceIngredients: (r: ReferenceIngredient[]) => void;
+  apiSettings: ApiSettings;
+  setApiSettings: (a: ApiSettings) => void;
   onNext: () => void;
 }
 
@@ -17,7 +19,8 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 
 export default function ConfigPanel({
   mode, setMode, beneficiaries, setBeneficiaries,
-  referenceIngredients, setReferenceIngredients, onNext
+  referenceIngredients, setReferenceIngredients,
+  apiSettings, setApiSettings, onNext
 }: ConfigPanelProps) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -142,6 +145,46 @@ export default function ConfigPanel({
               />
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* AI Settings */}
+      <div className="glass-card p-6">
+        <h3 className="font-semibold text-slate-200 mb-4 flex items-center gap-2">
+          <Cpu className="w-4 h-4 text-emerald-400" /> إعدادات الذكاء الاصطناعي
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 mb-2">
+              <Key className="w-3.5 h-3.5 text-emerald-500" /> مفتاح API الخاص بـ Gemini
+            </label>
+            <input
+              type="password"
+              value={apiSettings.apiKey}
+              onChange={e => setApiSettings({ ...apiSettings, apiKey: e.target.value })}
+              className="smart-input text-sm"
+              placeholder="AIzaSy..."
+            />
+            <p className="text-[10px] mt-1 text-slate-500">يُستخدم لتحليل الملفات وتقييم الأطباق. يُخزن محلياً فقط.</p>
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-500/10">
+                <Bot className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-200">الاستعانة التلقائية بنموذج مفتوح</div>
+                <div className="text-[10px] text-slate-500">استخدام نماذج بديلة عند عدم توفر مفتاح خاص</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setApiSettings({ ...apiSettings, useOpenModel: !apiSettings.useOpenModel })}
+              className={`w-10 h-5 rounded-full transition-colors relative ${apiSettings.useOpenModel ? 'bg-emerald-500' : 'bg-slate-700'}`}
+            >
+              <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${apiSettings.useOpenModel ? 'left-6' : 'left-1'}`} />
+            </button>
+          </div>
         </div>
       </div>
 

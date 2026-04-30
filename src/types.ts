@@ -72,3 +72,8 @@ export interface DishEvaluation {
   evaluation: string;
   score: number;
 }
+
+export interface ApiSettings {
+  apiKey: string;
+  useOpenModel: boolean;
+}
