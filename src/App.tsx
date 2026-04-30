@@ -7,6 +7,7 @@ import ConfigPanel from './components/ConfigPanel';
 import MenuBuilder from './components/MenuBuilder';
 import ResultsPanel from './components/ResultsPanel';
 import EvaluationPanel from './components/EvaluationPanel';
+import SyncPanel from './components/SyncPanel';
 
 // ─── Utility helpers (exported so components can import them) ───────────────
 
@@ -81,7 +82,7 @@ const daysLabels: Record<DayOfWeek, string> = {
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 
-type Tab = 'dashboard' | 'config' | 'menu' | 'results' | 'evaluation';
+type Tab = 'dashboard' | 'config' | 'menu' | 'results' | 'evaluation' | 'sync';
 
 export default function App() {
   // ── Persisted state ────────────────────────────────────────────────────────
@@ -369,6 +370,16 @@ export default function App() {
             uploadMsg={uploadMsg}
             onFileChange={handleEvalFileChange}
             onEvaluate={executeEvaluation}
+          />
+        )}
+
+        {activeTab === 'sync' && (
+          <SyncPanel
+            mode={mode} setMode={setMode}
+            beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries}
+            meals={meals} setMeals={setMeals}
+            referenceIngredients={referenceIngredients} setReferenceIngredients={setReferenceIngredients}
+            apiSettings={apiSettings} setApiSettings={setApiSettings}
           />
         )}
       </main>
