@@ -76,8 +76,8 @@ export default function MenuBuilder({
       const map = new Map<string, Meal>();
       json.forEach((row: any) => {
         if (!Array.isArray(row) || row.length < 3) return;
-        const ingName = String(row[2]).trim();
-        if (!ingName || ingName === 'المادة' || ingName === 'المكون') return;
+        const ingNameRaw = String(row[2]).trim();
+        if (!ingNameRaw || ingNameRaw === 'المادة' || ingNameRaw === 'المكون') return;
         const day = getDayFromText(row[0]) || 'monday';
         const type = getMealTypeFromText(row[1]);
         const key = `${day}-${type}`;
@@ -85,13 +85,22 @@ export default function MenuBuilder({
           id: generateId(), day, type,
           name: `${mealTypeLabels[type]} - ${daysLabels[day]}`, ingredients: []
         });
-        let qty = row[3] ? parseFloat(row[3]) : 0;
-        let unit = row[4] ? String(row[4]).trim() : '';
-        if (!qty || !unit) {
-          const ref = findMatchingReference(referenceIngredients, ingName);
-          if (ref) { if (!qty) qty = ref.quantityPerPerson; if (!unit) unit = ref.unit; }
-        }
-        map.get(key)!.ingredients.push({ id: generateId(), name: ingName, quantityPerPerson: qty, unit });
+        
+        // Split combined ingredients (e.g., "شاي، زيت زيتون، جبن")
+        const ingNames = ingNameRaw.split(/[,،+\-\n]| و /).map(s => s.trim()).filter(s => s.length > 0);
+        
+        ingNames.forEach(ingName => {
+          let qty = 0;
+          let unit = '';
+          
+          // Only use explicit row quantity if there was a single ingredient in the cell
+          if (ingNames.length === 1) {
+            qty = row[3] ? parseFloat(row[3]) : 0;
+            unit = row[4] ? String(row[4]).trim() : '';
+          }
+
+          map.get(key)!.ingredients.push({ id: generateId(), name: ingName, quantityPerPerson: qty, unit });
+        });
       });
       const added = Array.from(map.values());
       if (added.length) { setMeals([...meals, ...added]); alert('تم الاستيراد بنجاح!'); }
@@ -121,15 +130,7 @@ export default function MenuBuilder({
       return {
         ...m, ingredients: m.ingredients.map(ing => {
           if (ing.id !== ingId) return ing;
-          const base = { ...ing, [field]: value };
-          if (field === 'name') {
-            const ref = findMatchingReference(referenceIngredients, normalizeIngredientName(String(value)));
-            if (ref) {
-              if (!Number(ing.quantityPerPerson)) base.quantityPerPerson = ref.quantityPerPerson;
-              if (!ing.unit?.trim()) base.unit = ref.unit;
-            }
-          }
-          return base;
+          return { ...ing, [field]: value };
         })
       };
     }));

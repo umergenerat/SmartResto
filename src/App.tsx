@@ -152,17 +152,7 @@ export default function App() {
       if (!apiKey && !apiSettings.useOpenModel) throw new Error('مفتاح API غير متوفر');
       const extracted = await analyzeMenuDocument(file, apiKey, setUploadMsg);
       if (extracted.length > 0) {
-        const enriched = extracted.map(m => ({
-          ...m,
-          ingredients: m.ingredients.map(ing => {
-            if (!ing.quantityPerPerson || ing.quantityPerPerson === 0) {
-              const ref = findMatchingReference(referenceIngredients, ing.name);
-              if (ref) return { ...ing, quantityPerPerson: ref.quantityPerPerson, unit: ing.unit || ref.unit };
-            }
-            return ing;
-          })
-        }));
-        setMeals([...meals, ...enriched]);
+        setMeals([...meals, ...extracted]);
         setActiveTab('menu');
       } else {
         setAiError('لم يتم العثور على وجبات صالحة في المستند.');
