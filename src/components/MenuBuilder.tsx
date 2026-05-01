@@ -45,33 +45,36 @@ export default function MenuBuilder({
   const menuFileRef = useRef<HTMLInputElement>(null);
 
   const getDayFromText = (t: string): DayOfWeek | undefined => {
-    const s = String(t || '').trim().toLowerCase();
-    if (s.includes('اثنين') || s.includes('إثنين')) return 'monday';
-    if (s.includes('ثلاثاء')) return 'tuesday';
-    if (s.includes('أربعاء') || s.includes('اربعاء')) return 'wednesday';
-    if (s.includes('خميس')) return 'thursday';
-    if (s.includes('جمعة')) return 'friday';
-    if (s.includes('سبت')) return 'saturday';
-    if (s.includes('أحد') || s.includes('احد')) return 'sunday';
+    const s = normalizeIngredientName(t);
+    const sf = String(t || '').trim().toLowerCase(); // for pure english/french checks
+    if (s.includes('اثنين') || sf.includes('lundi')) return 'monday';
+    if (s.includes('ثلاثا') || sf.includes('mardi')) return 'tuesday';
+    if (s.includes('اربعا') || sf.includes('mercredi')) return 'wednesday';
+    if (s.includes('خميس') || sf.includes('jeudi')) return 'thursday';
+    if (s.includes('جمعه') || sf.includes('vendredi')) return 'friday';
+    if (s.includes('سبت') || sf.includes('samedi')) return 'saturday';
+    if (s.includes('احد') || sf.includes('dimanche')) return 'sunday';
   };
 
   const getMealTypeFromText = (t: string): MealType => {
-    const s = String(t || '').trim().toLowerCase();
-    if (s.includes('سحور')) return 'suhoor';
-    if (s.includes('إفطار') || s.includes('افطار')) return 'iftar';
-    if (s.includes('عشاء')) return 'dinner';
-    if (s.includes('غداء') || s.includes('غذا')) return 'lunch';
-    if (s.includes('فطور') || s.includes('صباح')) return mode === 'ramadan' ? 'iftar' : 'breakfast';
+    const s = normalizeIngredientName(t);
+    const sf = String(t || '').trim().toLowerCase();
+    if (s.includes('سحور') || sf.includes('shour') || sf.includes('suhoor')) return 'suhoor';
+    if (s.includes('افطار') || sf.includes('iftar') || sf.includes('ftour')) return 'iftar';
+    if (s.includes('عشا') || sf.includes('diner') || sf.includes('dîner')) return 'dinner';
+    if (s.includes('غدا') || s.includes('غذا') || sf === 'dejeuner' || sf.includes('déjeuner') || sf.includes('dejeuner') && !sf.includes('petit')) return 'lunch';
+    if (s.includes('فطور') || s.includes('صباح') || sf.includes('petit') || sf.includes('pdj') || sf.includes('matin')) return mode === 'ramadan' ? 'iftar' : 'breakfast';
     return mode === 'ramadan' ? 'iftar' : 'lunch';
   };
 
   const getMealTypeFromTextStrict = (t: string): MealType | undefined => {
-    const s = String(t || '').trim().toLowerCase();
-    if (s.includes('سحور')) return 'suhoor';
-    if (s.includes('إفطار') || s.includes('افطار')) return 'iftar';
-    if (s.includes('عشاء')) return 'dinner';
-    if (s.includes('غداء') || s.includes('غذا')) return 'lunch';
-    if (s.includes('فطور') || s.includes('صباح')) return mode === 'ramadan' ? 'iftar' : 'breakfast';
+    const s = normalizeIngredientName(t);
+    const sf = String(t || '').trim().toLowerCase();
+    if (s.includes('سحور') || sf.includes('shour') || sf.includes('suhoor')) return 'suhoor';
+    if (s.includes('افطار') || sf.includes('iftar') || sf.includes('ftour')) return 'iftar';
+    if (s.includes('عشا') || sf.includes('diner') || sf.includes('dîner')) return 'dinner';
+    if (s.includes('غدا') || s.includes('غذا') || (sf.includes('dejeuner') && !sf.includes('petit')) || (sf.includes('déjeuner') && !sf.includes('petit'))) return 'lunch';
+    if (s.includes('فطور') || s.includes('صباح') || sf.includes('petit') || sf.includes('pdj') || sf.includes('matin')) return mode === 'ramadan' ? 'iftar' : 'breakfast';
     return undefined;
   };
 
@@ -236,12 +239,31 @@ export default function MenuBuilder({
                const candidateStrs: string[] = [];
                for (const c of cells) {
                   if (!c) continue;
-                  if (getDayFromText(c) || getMealTypeFromTextStrict(c)) continue;
+                  
+                  const d = getDayFromText(c);
+                  const m = getMealTypeFromTextStrict(c);
                   const n = parseFloat(c);
-                  if (!isNaN(n) && /^[\d.,\s]+$/.test(c)) { candidateNums.push(n); }
-                  else {
-                     const isHeader = ['المادة', 'المكون', 'الكمية', 'الوحدة', 'اليوم', 'الوجبة', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الاحد', 'الأحد', 'فطور', 'غداء', 'عشاء', 'سحور', 'افطار', 'إفطار'].some(h => c === h || c.includes(h));
-                     if (!isHeader) candidateStrs.push(c);
+                  
+                  if (!isNaN(n) && /^[\d.,\s]+$/.test(c)) { 
+                     candidateNums.push(n); 
+                  } else {
+                     const isHeader = ['المادة', 'المكون', 'الكمية', 'الوحدة', 'اليوم', 'الوجبة', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الاحد', 'الأحد', 'فطور', 'غداء', 'عشاء', 'سحور', 'افطار', 'إفطار'].some(h => c === h || (c.includes(h) && c.length <= h.length + 3));
+                     if (isHeader) continue;
+
+                     if (d || m) {
+                        // Check if it's purely a day/meal marker or contains actual ingredients
+                        let cleaned = c;
+                        ['اثنين', 'إثنين', 'ثلاثاء', 'أربعاء', 'اربعاء', 'خميس', 'جمعة', 'جمعه', 'سبت', 'أحد', 'احد', 'فطور', 'صباح', 'غداء', 'غذا', 'عشاء', 'سحور', 'إفطار', 'افطار', 'يوم', 'وجبة', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche', 'petit', 'dejeuner', 'déjeuner', 'diner', 'dîner', 'shour', 'suhoor', 'iftar', 'ftour', 'matin', 'pdj', 'jour', 'repas'].forEach(w => {
+                           cleaned = cleaned.replace(new RegExp(w, 'gi'), '');
+                        });
+                        cleaned = cleaned.replace(/[\s\-_'",.؛،\(\)\[\]\{\}:]/g, '').trim();
+                        // If there are remaining characters, it's an ingredient
+                        if (cleaned.length > 1) {
+                           candidateStrs.push(c);
+                        }
+                     } else {
+                        candidateStrs.push(c);
+                     }
                   }
                }
                
