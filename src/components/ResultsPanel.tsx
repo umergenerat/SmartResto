@@ -27,7 +27,7 @@ const mealTypeColors: Record<MealType, string> = {
   breakfast: '#f59e0b', lunch: '#34d399', dinner: '#60a5fa', suhoor: '#a78bfa', iftar: '#f87171',
 };
 
-type ViewMode = 'detailed' | 'summary';
+type ViewMode = 'detailed' | 'summary' | 'projection';
 
 export default function ResultsPanel({
   results, detailedResults, beneficiaries, mode,
@@ -35,6 +35,13 @@ export default function ResultsPanel({
 }: ResultsPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('detailed');
   const [search, setSearch] = useState('');
+  const [projectionDays, setProjectionDays] = useState<number>(90);
+  const [annualDays, setAnnualDays] = useState<number>(270);
+
+  const programmedDaysCount = useMemo(() => {
+    const days = new Set(detailedResults.map(r => r.day));
+    return days.size || 1;
+  }, [detailedResults]);
 
   // ── Filtered detailed rows ────────────────────────────────────────────────
   const filteredDetailed = useMemo(() =>
@@ -112,6 +119,26 @@ export default function ResultsPanel({
     xlsx.writeFile(wb, 'قائمة_الاحتياجات_المجملة.xlsx');
   };
 
+  const exportProjectionExcel = () => {
+    const rows = filteredSummary.map((r, i) => {
+      const dailyAvg = r.totalQuantity / programmedDaysCount;
+      return {
+        '#': i + 1,
+        'المادة': r.name,
+        'Ingrédient': r.nameFr || '',
+        'الوحدة': r.unit,
+        [`الكمية المبرمجة (${programmedDaysCount} أيام)`]: Number(r.totalQuantity.toFixed(2)),
+        'شهرياً (30 يوم)': Number((dailyAvg * 30).toFixed(2)),
+        [`دورة (${projectionDays} يوم)`]: Number((dailyAvg * projectionDays).toFixed(2)),
+        [`سنوياً (${annualDays} يوم)`]: Number((dailyAvg * annualDays).toFixed(2)),
+      };
+    });
+    const ws = xlsx.utils.json_to_sheet(rows);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, 'التوقعات');
+    xlsx.writeFile(wb, 'توقعات_المشتريات.xlsx');
+  };
+
   const totalRows = viewMode === 'detailed' ? filteredDetailed.length : filteredSummary.length;
   const grandTotal = filteredDetailed.reduce((s, r) => s + r.totalQuantity, 0);
 
@@ -130,7 +157,11 @@ export default function ResultsPanel({
         </div>
         <div className="flex gap-2 no-print flex-wrap">
           <button
-            onClick={() => viewMode === 'detailed' ? exportDetailedExcel() : exportSummaryExcel()}
+            onClick={() => {
+              if (viewMode === 'detailed') exportDetailedExcel();
+              else if (viewMode === 'summary') exportSummaryExcel();
+              else exportProjectionExcel();
+            }}
             className="btn-ghost text-xs py-2 px-3"
           >
             <Download className="w-3.5 h-3.5" />
@@ -167,6 +198,16 @@ export default function ResultsPanel({
             }}
           >
             <TableProperties className="w-4 h-4" /> مجملة
+          </button>
+          <button
+            onClick={() => setViewMode('projection')}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition-all border-r border-slate-700/50"
+            style={{
+              background: viewMode === 'projection' ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.03)',
+              color: viewMode === 'projection' ? '#34d399' : '#94a3b8',
+            }}
+          >
+            <ShoppingBasket className="w-4 h-4" /> توقعات المشتريات
           </button>
         </div>
 
@@ -367,6 +408,97 @@ export default function ResultsPanel({
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          PROJECTION VIEW — Purchase planning
+      ════════════════════════════════════════════════════════════════════ */}
+      {viewMode === 'projection' && (
+        <div className="glass-card overflow-hidden p-6 animate-fade-in">
+          {filteredSummary.length === 0 ? (
+            <EmptyState hasData={results.length > 0} />
+          ) : (
+            <>
+              <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-700/50">
+                <div>
+                  <h3 className="text-lg font-bold text-emerald-400">توقعات الاستهلاك والمشتريات</h3>
+                  <p className="text-sm text-slate-400 mt-1">يتم الحساب بناءً على متوسط الاستهلاك اليومي ({programmedDaysCount} أيام مبرمجة)</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2 bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/50">
+                    <label className="text-sm text-slate-300 font-medium">أيام الدورة:</label>
+                    <input 
+                      type="number" min="1" value={projectionDays} 
+                      onChange={e => setProjectionDays(Number(e.target.value) || 1)}
+                      className="smart-input w-20 text-center py-1.5"
+                    />
+                    <span className="text-xs text-slate-500">يوم</span>
+                  </div>
+                  <div className="flex items-center gap-2 bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/50">
+                    <label className="text-sm text-slate-300 font-medium">أيام السنة الدراسية:</label>
+                    <input 
+                      type="number" min="1" value={annualDays} 
+                      onChange={e => setAnnualDays(Number(e.target.value) || 1)}
+                      className="smart-input w-20 text-center py-1.5"
+                    />
+                    <span className="text-xs text-slate-500">يوم</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th className="w-10 text-center">#</th>
+                      <th>المادة الغذائية</th>
+                      <th className="text-center">الوحدة</th>
+                      <th className="text-center text-slate-300">المبرمج ({programmedDaysCount} أيام)</th>
+                      <th className="text-center text-blue-300">شهرياً (30 يوم)</th>
+                      <th className="text-center text-amber-300">دورة مخصصة ({projectionDays} يوم)</th>
+                      <th className="text-center text-emerald-300">سنوياً ({annualDays} يوم)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSummary.map((r, i) => {
+                       const dailyAvg = r.totalQuantity / programmedDaysCount;
+                       return (
+                         <tr key={r.name}>
+                           <td className="text-center font-mono text-xs" style={{ color: 'rgba(148,163,184,0.35)' }}>{i+1}</td>
+                           <td>
+                             <div className="font-semibold text-slate-200 text-sm">{r.name}</div>
+                             {r.nameFr && <div className="text-xs mt-0.5 text-slate-500" dir="ltr">{r.nameFr}</div>}
+                           </td>
+                           <td className="text-center text-slate-400 text-sm">{r.unit}</td>
+                           <td className="text-center">
+                             <span className="font-mono text-sm text-slate-300 font-medium">
+                               {Number.isInteger(r.totalQuantity) ? r.totalQuantity : r.totalQuantity.toFixed(2)}
+                             </span>
+                           </td>
+                           <td className="text-center">
+                             <span className="font-mono text-sm text-blue-400 font-medium bg-blue-500/10 px-2 py-1 rounded">
+                               {Number.isInteger(dailyAvg * 30) ? (dailyAvg * 30) : (dailyAvg * 30).toFixed(2)}
+                             </span>
+                           </td>
+                           <td className="text-center">
+                             <span className="font-mono text-sm text-amber-400 font-bold bg-amber-500/10 px-2 py-1 rounded">
+                               {Number.isInteger(dailyAvg * projectionDays) ? (dailyAvg * projectionDays) : (dailyAvg * projectionDays).toFixed(2)}
+                             </span>
+                           </td>
+                           <td className="text-center">
+                             <span className="font-mono text-sm text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded">
+                               {Number.isInteger(dailyAvg * annualDays) ? (dailyAvg * annualDays) : (dailyAvg * annualDays).toFixed(2)}
+                             </span>
+                           </td>
+                         </tr>
+                       )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

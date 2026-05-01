@@ -1,11 +1,12 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Plus, Trash2, GripVertical, UploadCloud, ListPlus, Wand2,
-  UtensilsCrossed, AlertCircle
+  UtensilsCrossed, AlertCircle, Download, Calendar, Copy
 } from 'lucide-react';
 import { Meal, ScheduleMode, MealType, DayOfWeek, ReferenceIngredient, Ingredient } from '../types';
 import { findMatchingReference, normalizeIngredientName } from '../App';
 import * as xlsx from 'xlsx';
+import MealCard from './MealCard';
 
 interface MenuBuilderProps {
   meals: Meal[];
@@ -43,6 +44,20 @@ export default function MenuBuilder({
 }: MenuBuilderProps) {
 
   const menuFileRef = useRef<HTMLInputElement>(null);
+  const [activeDay, setActiveDay] = useState<DayOfWeek | 'all'>('all');
+
+  const validationIssues = React.useMemo(() => {
+    let missingQty = 0;
+    let missingUnit = 0;
+    meals.forEach(m => {
+      m.ingredients.forEach(ing => {
+        const qty = Number(ing.quantityPerPerson);
+        if (!qty || isNaN(qty) || qty <= 0) missingQty++;
+        if (!ing.unit || !ing.unit.trim()) missingUnit++;
+      });
+    });
+    return { missingQty, missingUnit, totalIssues: missingQty + missingUnit };
+  }, [meals]);
 
   const getDayFromText = (t: string): DayOfWeek | undefined => {
     const s = normalizeIngredientName(t);
@@ -190,11 +205,12 @@ export default function MenuBuilder({
            if (!Array.isArray(row)) continue;
            row.forEach((cell, c) => {
              const s = String(cell || '').trim().toLowerCase();
-             if (s.includes('يوم') || s === 'day') dayCol = c;
-             if (s.includes('وجب') || s === 'meal') mealCol = c;
-             if (s.includes('مكون') || s.includes('مادة') || s.includes('صنف') || s.includes('بيان')) ingCol = c;
-             if (s.includes('كمي') || s.includes('مقدار')) qtyCol = c;
-             if (s.includes('وحد')) unitCol = c;
+             const normalized = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+             if (s.includes('يوم') || s === 'day' || normalized.includes('jour')) dayCol = c;
+             if (s.includes('وجب') || s === 'meal' || normalized.includes('repas')) mealCol = c;
+             if (s.includes('مكون') || s.includes('مادة') || s.includes('صنف') || s.includes('بيان') || normalized.includes('designation') || normalized.includes('ingredient')) ingCol = c;
+             if (s.includes('كمي') || s.includes('مقدار') || normalized.includes('grammage') || normalized.includes('quantite')) qtyCol = c;
+             if (s.includes('وحد') || s === 'unit' || normalized.includes('unite')) unitCol = c;
            });
            if (ingCol !== -1) break;
         }
@@ -373,6 +389,94 @@ export default function MenuBuilder({
     setDraggingMealId(null);
   };
 
+  const duplicateDay = (sourceDay: DayOfWeek, targetDay: DayOfWeek) => {
+    if (sourceDay === targetDay) return;
+    const sourceMeals = meals.filter(m => m.day === sourceDay);
+    if (sourceMeals.length === 0) return alert('لا توجد وجبات في هذا اليوم لنسخها');
+    
+    if (!window.confirm(`تأكيد نسخ وجبات ${daysLabels[sourceDay]} إلى ${daysLabels[targetDay]}؟`)) return;
+
+    const newMeals = sourceMeals.map(m => ({
+      ...m,
+      id: generateId(),
+      day: targetDay,
+      ingredients: m.ingredients.map(ing => ({ ...ing, id: generateId() }))
+    }));
+    
+    setMeals([...meals, ...newMeals]);
+    alert('تم النسخ بنجاح!');
+  };
+
+  const exportMenu = () => {
+    const data: any[] = [];
+    const daysOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const mealOrder = ['breakfast', 'lunch', 'dinner', 'suhoor', 'iftar'];
+
+    const frenchDays: Record<string, string> = {
+      monday: 'Lundi', tuesday: 'Mardi', wednesday: 'Mercredi',
+      thursday: 'Jeudi', friday: 'Vendredi', saturday: 'Samedi', sunday: 'Dimanche'
+    };
+    const frenchMeals: Record<string, string> = {
+      breakfast: 'Petit déjeuner', lunch: 'Déjeuner', dinner: 'Diner', suhoor: 'Shour', iftar: 'Iftar'
+    };
+
+    // Sort meals by day then by type
+    const sortedMeals = [...meals].sort((a, b) => {
+      const dayDiff = daysOrder.indexOf(a.day) - daysOrder.indexOf(b.day);
+      if (dayDiff !== 0) return dayDiff;
+      return mealOrder.indexOf(a.type) - mealOrder.indexOf(b.type);
+    });
+
+    sortedMeals.forEach(meal => {
+      if (meal.ingredients.length === 0) {
+        data.push({
+          'Jour': frenchDays[meal.day] || '',
+          'Repas': frenchMeals[meal.type] || '',
+          'Désignation': '',
+          'Grammage': '',
+          'Unité': ''
+        });
+      } else {
+        meal.ingredients.forEach(ing => {
+          data.push({
+            'Jour': frenchDays[meal.day] || '',
+            'Repas': frenchMeals[meal.type] || '',
+            'Désignation': ing.name,
+            'Grammage': ing.quantityPerPerson || '',
+            'Unité': ing.unit || ''
+          });
+        });
+      }
+    });
+
+    if (data.length === 0) {
+      // Empty template
+      data.push({
+        'Jour': 'Lundi',
+        'Repas': 'Petit déjeuner',
+        'Désignation': '',
+        'Grammage': '',
+        'Unité': ''
+      });
+    }
+
+    const ws = xlsx.utils.json_to_sheet(data);
+    
+    // Auto-fit columns roughly
+    const colWidths = [
+      { wch: 15 }, // Jour
+      { wch: 20 }, // Repas
+      { wch: 35 }, // Désignation
+      { wch: 12 }, // Grammage
+      { wch: 12 }  // Unité
+    ];
+    ws['!cols'] = colWidths;
+
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "Menu");
+    xlsx.writeFile(wb, "Menu_Template.xlsx");
+  };
+
   return (
     <div className="animate-fade-in max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -382,6 +486,9 @@ export default function MenuBuilder({
           <p className="section-subtitle">استخدم AI لاستخراج المكونات أو أضفها يدوياً</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
+          <button onClick={exportMenu} className="btn-ghost text-xs py-2 px-3">
+            <Download className="w-3.5 h-3.5" /> استخراج النموذج
+          </button>
           <button onClick={autoFill} className="btn-ghost text-xs py-2 px-3">
             <Wand2 className="w-3.5 h-3.5" /> تعبئة تلقائية
           </button>
@@ -427,86 +534,90 @@ export default function MenuBuilder({
         </div>
       )}
 
+      {/* Validation Summary */}
+      {meals.length > 0 && validationIssues.totalIssues > 0 && (
+        <div className="flex items-start gap-3 p-4 rounded-xl animate-fade-in" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+          <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm text-amber-300">
+            <span className="font-bold block mb-1">تنبيه بالنواقص قبل الحساب:</span>
+            <ul className="list-disc list-inside space-y-0.5 text-xs opacity-90">
+              {validationIssues.missingQty > 0 && <li>يوجد {validationIssues.missingQty} مادة بدون كمية محددة.</li>}
+              {validationIssues.missingUnit > 0 && <li>يوجد {validationIssues.missingUnit} مادة بدون وحدة قياس.</li>}
+            </ul>
+            <span className="opacity-70 block mt-1.5 text-[11px]">يرجى تعبئتها يدوياً أو استخدام زر "تعبئة تلقائية" أعلى الصفحة لتجنب حسابات خاطئة.</span>
+          </div>
+        </div>
+      )}
+
+      {/* Day Tabs */}
+      {meals.length > 0 && (
+        <div className="flex flex-col gap-3 pb-2">
+          <div className="flex gap-2 overflow-x-auto scrollbar-thin">
+            <button 
+              onClick={() => setActiveDay('all')}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors shrink-0 ${activeDay === 'all' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50 border border-transparent'}`}
+            >
+              الكل
+            </button>
+            {Object.entries(daysLabels).map(([k, v]) => (
+              <button 
+                key={k}
+                onClick={() => setActiveDay(k as DayOfWeek)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors shrink-0 flex items-center gap-2 ${activeDay === k ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50 border border-transparent'}`}
+              >
+                <Calendar className="w-3.5 h-3.5 opacity-50" />
+                {v}
+                <span className="bg-slate-900/50 px-1.5 py-0.5 rounded text-[10px]">
+                  {meals.filter(m => m.day === k).length}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {activeDay !== 'all' && meals.filter(m => m.day === activeDay).length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 animate-fade-in bg-slate-800/30 rounded-lg border border-slate-700/50 w-fit">
+              <Copy className="w-4 h-4 text-slate-400" />
+              <span className="text-xs text-slate-300 font-medium">نسخ وجبات هذا اليوم إلى:</span>
+              <select 
+                className="smart-select text-xs py-1 px-2 w-auto bg-slate-900/50"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    duplicateDay(activeDay as DayOfWeek, e.target.value as DayOfWeek);
+                  }
+                }}
+              >
+                <option value="" disabled>اختر اليوم...</option>
+                {Object.entries(daysLabels).filter(([k]) => k !== activeDay).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Meals list */}
       <div className="space-y-4">
-        {meals.map(meal => (
-          <div
-            key={meal.id} draggable
-            onDragStart={e => onDragStart(e, meal.id)}
+        {meals.filter(m => activeDay === 'all' || m.day === activeDay).map(meal => (
+          <MealCard
+            key={meal.id}
+            meal={meal}
+            referenceIngredients={referenceIngredients}
+            draggingMealId={draggingMealId}
+            onDragStart={onDragStart}
             onDragOver={onDragOver}
-            onDrop={e => onDrop(e, meal.id)}
+            onDrop={onDrop}
             onDragEnd={() => setDraggingMealId(null)}
-            className={`meal-card ${draggingMealId === meal.id ? 'dragging' : ''}`}
-          >
-            {/* Meal header */}
-            <div className="px-5 py-4 border-b flex flex-wrap items-center justify-between gap-3"
-                 style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-              <div className="flex flex-1 items-center gap-3 flex-wrap">
-                <GripVertical className="w-4 h-4 text-slate-600 cursor-move hidden md:block" />
-                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: typeColors[meal.type] }} />
-                <input
-                  type="text" value={meal.name}
-                  onChange={e => updateMeal(meal.id, 'name', e.target.value)}
-                  className="font-bold text-slate-200 bg-transparent border-b border-transparent hover:border-slate-600 focus:border-emerald-500 outline-none text-sm"
-                  placeholder="اسم الوجبة"
-                />
-                <select value={meal.day || 'monday'} onChange={e => updateMeal(meal.id, 'day', e.target.value as DayOfWeek)}
-                  className="smart-select text-xs py-1.5 px-2">
-                  {Object.entries(daysLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-                <select value={meal.type} onChange={e => updateMeal(meal.id, 'type', e.target.value as MealType)}
-                  className="smart-select text-xs py-1.5 px-2">
-                  {Object.entries(mealTypeLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              </div>
-              <button onClick={() => removeMeal(meal.id)} className="btn-danger">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Ingredients */}
-            <div className="p-5">
-              {meal.ingredients.length > 0 ? (
-                <div className="space-y-2 mb-4">
-                  {meal.ingredients.map(ing => (
-                    <div key={ing.id} className="ingredient-row">
-                      <div className="flex-1 min-w-[180px]">
-                        <label className="text-xs font-semibold mb-1 block" style={{ color: 'rgba(148,163,184,0.6)' }}>المادة</label>
-                        <input type="text" value={ing.name} list="ref-list"
-                          onChange={e => updateIngredient(meal.id, ing.id, 'name', e.target.value)}
-                          placeholder="اسم المادة الغذائية" className="smart-input text-sm" />
-                      </div>
-                      <div className="w-28">
-                        <label className="text-xs font-semibold mb-1 block" style={{ color: 'rgba(148,163,184,0.6)' }}>الكمية/فرد</label>
-                        <input type="number" min="0" step="0.01" value={ing.quantityPerPerson || ''}
-                          onChange={e => updateIngredient(meal.id, ing.id, 'quantityPerPerson', Number(e.target.value))}
-                          placeholder={findMatchingReference(referenceIngredients, ing.name)?.quantityPerPerson?.toString() || '0'}
-                          className="smart-input text-sm text-center" />
-                      </div>
-                      <div className="w-20">
-                        <label className="text-xs font-semibold mb-1 block" style={{ color: 'rgba(148,163,184,0.6)' }}>الوحدة</label>
-                        <input type="text" list="units-list" value={ing.unit}
-                          onChange={e => updateIngredient(meal.id, ing.id, 'unit', e.target.value)}
-                          placeholder={findMatchingReference(referenceIngredients, ing.name)?.unit || 'غ'}
-                          className="smart-input text-sm text-center" />
-                      </div>
-                      <div className="pt-5">
-                        <button onClick={() => removeIngredient(meal.id, ing.id)} className="btn-danger">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-center py-3 mb-3" style={{ color: 'rgba(148,163,184,0.35)' }}>لا توجد مواد</p>
-              )}
-              <button onClick={() => addIngredient(meal.id)}
-                className="text-emerald-400 text-sm font-medium flex items-center gap-1 hover:text-emerald-300 transition-colors">
-                <Plus className="w-4 h-4" /> إضافة مادة غذائية
-              </button>
-            </div>
-          </div>
+            updateMeal={updateMeal}
+            removeMeal={removeMeal}
+            updateIngredient={updateIngredient}
+            removeIngredient={removeIngredient}
+            addIngredient={addIngredient}
+            daysLabels={daysLabels}
+            mealTypeLabels={mealTypeLabels}
+            typeColors={typeColors}
+          />
         ))}
       </div>
 

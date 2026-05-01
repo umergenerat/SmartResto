@@ -1,5 +1,7 @@
-import React, { useState, useRef } from 'react';
-import { Download, Upload, Copy, Check, RefreshCw, Smartphone } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Download, Upload, Copy, Check, RefreshCw, Smartphone, QrCode, Scan } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Html5QrcodeScanner, Html5QrcodeScanType } from 'html5-qrcode';
 import { Meal, Beneficiaries, ScheduleMode, ReferenceIngredient, ApiSettings } from '../types';
 
 interface SyncPanelProps {
@@ -21,6 +23,29 @@ export default function SyncPanel({
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pasteData, setPasteData] = useState('');
+
+  // QR Sync State
+  const [isGeneratingQR, setIsGeneratingQR] = useState(false);
+  const [qrChunks, setQrChunks] = useState<string[]>([]);
+  const [chunkIdx, setChunkIdx] = useState(0);
+
+  const [isScanningQR, setIsScanningQR] = useState(false);
+  const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
+  const scannedChunksRef = useRef<string[]>([]);
+  const totalChunksRef = useRef<number>(0);
+  
+  // Audio for feedback
+  const beep = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      osc.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+    } catch(e) {}
+  };
 
   const getSyncData = () => {
     return {
@@ -95,6 +120,99 @@ export default function SyncPanel({
     }
   };
 
+  // --- QR Generator Logic ---
+  const CHUNK_SIZE = 400; // max safe size for reliable fast scanning
+  const startGeneratingQR = () => {
+    const dataStr = JSON.stringify(getSyncData());
+    const base64 = btoa(encodeURIComponent(dataStr));
+    const total = Math.ceil(base64.length / CHUNK_SIZE);
+    const chunks: string[] = [];
+    for (let i = 0; i < total; i++) {
+      chunks.push(`${i + 1}/${total}|${base64.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)}`);
+    }
+    setQrChunks(chunks);
+    setChunkIdx(0);
+    setIsGeneratingQR(true);
+    setMsg('');
+  };
+
+  useEffect(() => {
+    let interval: any;
+    if (isGeneratingQR && qrChunks.length > 0) {
+      interval = setInterval(() => {
+        setChunkIdx((prev) => (prev + 1) % qrChunks.length);
+      }, 350); // Fast transition for multi-part
+    }
+    return () => clearInterval(interval);
+  }, [isGeneratingQR, qrChunks]);
+
+
+  // --- QR Scanner Logic ---
+  useEffect(() => {
+    if (isScanningQR) {
+      // Reset state
+      scannedChunksRef.current = [];
+      totalChunksRef.current = 0;
+      setScanProgress({ current: 0, total: 0 });
+      setMsg('');
+
+      const scanner = new Html5QrcodeScanner("qr-reader", { 
+        fps: 15, 
+        qrbox: { width: 300, height: 300 },
+        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+        videoConstraints: { facingMode: "environment" }
+      }, false);
+      
+      let isDone = false;
+
+      scanner.render((text) => {
+        if (isDone) return;
+        const parts = text.split('|');
+        if (parts.length >= 2) {
+          const header = parts[0].split('/');
+          if (header.length === 2) {
+            const m = parseInt(header[0], 10);
+            const n = parseInt(header[1], 10);
+            const dataPart = parts.slice(1).join('|');
+            
+            if (totalChunksRef.current === 0) {
+              totalChunksRef.current = n;
+              scannedChunksRef.current = new Array(n).fill(null);
+            }
+            
+            if (m > 0 && m <= n && !scannedChunksRef.current[m - 1]) {
+              scannedChunksRef.current[m - 1] = dataPart;
+              const currentCount = scannedChunksRef.current.filter(Boolean).length;
+              setScanProgress({ current: currentCount, total: n });
+              beep(); // feedback beep on new chunk
+              
+              if (currentCount === n) {
+                isDone = true;
+                scanner.clear();
+                setIsScanningQR(false);
+                try {
+                  const fullBase64 = scannedChunksRef.current.join('');
+                  const decoded = decodeURIComponent(atob(fullBase64));
+                  const data = JSON.parse(decoded);
+                  loadData(data);
+                  setMsg('تم مسح واستيراد البيانات عبر QR بنجاح!');
+                } catch(err) {
+                  setMsg('حدث خطأ في تجميع أو معالجة بيانات الـ QR.');
+                }
+              }
+            }
+          }
+        }
+      }, () => {
+        // ignore scan frame errors to keep scanning
+      });
+
+      return () => {
+        scanner.clear().catch(e => console.error("Failed to clear scanner", e));
+      };
+    }
+  }, [isScanningQR]);
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-20">
       <div className="card p-6">
@@ -122,8 +240,16 @@ export default function SyncPanel({
             <h3 className="text-lg font-bold text-emerald-300 border-b border-emerald-500/20 pb-2">تصدير البيانات (من هذا الجهاز)</h3>
             
             <button
+              onClick={startGeneratingQR}
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-900 rounded-xl transition-all font-bold text-sm shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)]"
+            >
+              <QrCode className="w-5 h-5" />
+              توليد رمز QR (سريع ومتسلسل)
+            </button>
+
+            <button
               onClick={handleExportFile}
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-100 rounded-xl transition-all font-medium text-sm"
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-100 rounded-xl transition-all font-medium text-sm mt-4"
             >
               <Download className="w-5 h-5" />
               تنزيل كملف (JSON)
@@ -142,7 +268,15 @@ export default function SyncPanel({
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-blue-300 border-b border-blue-500/20 pb-2">استيراد البيانات (إلى هذا الجهاز)</h3>
             
-            <div className="relative">
+            <button
+              onClick={() => setIsScanningQR(!isScanningQR)}
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-blue-500 hover:bg-blue-400 text-slate-900 rounded-xl transition-all font-bold text-sm shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)]"
+            >
+              {isScanningQR ? <Check className="w-5 h-5" /> : <Scan className="w-5 h-5" />}
+              {isScanningQR ? 'إيقاف المسح' : 'مسح رمز QR'}
+            </button>
+
+            <div className="relative mt-4">
               <input
                 type="file"
                 accept=".json"
@@ -164,7 +298,7 @@ export default function SyncPanel({
               <textarea
                 value={pasteData}
                 onChange={e => setPasteData(e.target.value)}
-                rows={3}
+                rows={2}
                 placeholder="ألصق الرمز هنا..."
                 className="w-full bg-slate-900/50 border border-blue-500/30 rounded-xl p-3 text-sm text-blue-100 focus:outline-none focus:border-blue-500/60"
               />
@@ -178,8 +312,50 @@ export default function SyncPanel({
               </button>
             </div>
           </div>
-
         </div>
+
+        {/* QR Scanner Modal / Inline UI */}
+        {isScanningQR && (
+          <div className="mt-8 p-6 glass-card border border-blue-500/30 rounded-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-full h-1 bg-slate-800">
+              <div 
+                className="h-full bg-blue-500 transition-all duration-300" 
+                style={{ width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` }} 
+              />
+            </div>
+            <h3 className="text-lg font-bold text-center text-blue-300 mb-2">وجّه الكاميرا نحو رمز QR</h3>
+            {scanProgress.total > 0 && (
+              <p className="text-center text-blue-200 text-sm mb-4 font-bold">
+                تم التقاط: {scanProgress.current} من {scanProgress.total} أجزاء
+              </p>
+            )}
+            <div id="qr-reader" className="mx-auto rounded-xl overflow-hidden w-full max-w-sm" />
+          </div>
+        )}
+
+        {/* QR Generator Modal / Inline UI */}
+        {isGeneratingQR && qrChunks.length > 0 && (
+          <div className="mt-8 p-6 glass-card border border-emerald-500/30 rounded-2xl text-center flex flex-col items-center">
+            <h3 className="text-lg font-bold text-emerald-300 mb-2">امسح الرمز من الجهاز الآخر</h3>
+            <p className="text-sm text-emerald-200/70 mb-6">
+              يتم عرض الرموز بشكل متتابع سريع (الجزء {chunkIdx + 1} من {qrChunks.length}). دع الكاميرا تمسح باستمرار.
+            </p>
+            <div className="p-4 bg-white rounded-2xl inline-block shadow-xl">
+              <QRCodeSVG 
+                value={qrChunks[chunkIdx]} 
+                size={250} 
+                level="L" // L is low error correction for smaller simpler QR codes (faster scanning)
+              />
+            </div>
+            <button 
+              onClick={() => setIsGeneratingQR(false)}
+              className="mt-6 text-sm text-slate-400 hover:text-white transition-colors"
+            >
+              إلغاء وإخفاء
+            </button>
+          </div>
+        )}
+
       </div>
     </div>
   );
