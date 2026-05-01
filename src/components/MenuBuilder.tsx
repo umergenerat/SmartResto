@@ -82,106 +82,208 @@ export default function MenuBuilder({
       const data = await file.arrayBuffer();
       const wb = xlsx.read(data, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const json: any[] = xlsx.utils.sheet_to_json(ws, { header: 1 });
+      const json: any[][] = xlsx.utils.sheet_to_json(ws, { header: 1 });
       const map = new Map<string, Meal>();
-      let currentDay: DayOfWeek = 'monday';
-      let currentType: MealType = mode === 'ramadan' ? 'iftar' : 'breakfast';
 
-      json.forEach((row: any) => {
-        if (!Array.isArray(row) || row.length === 0) return;
-        
-        // Clean cells
-        const cells = row.map(c => String(c === undefined || c === null ? '' : c).trim());
-        if (cells.every(c => !c)) return;
-
-        // Check for explicit Day or MealType anywhere in the row (useful for merged cells or sequential lists)
-        let foundExplicitDay = false;
-        let foundExplicitType = false;
-
-        for (const c of cells) {
-          if (!c) continue;
-          const d = getDayFromText(c);
-          if (d) { currentDay = d; foundExplicitDay = true; }
-          const t = getMealTypeFromTextStrict(c);
-          if (t) { currentType = t; foundExplicitType = true; }
-        }
-
-        // Try extracting ingredient, quantity, and unit using smart discovery
-        // Skip common headers
-        const headerWords = ['المادة', 'المكون', 'الكمية', 'الوحدة', 'اليوم', 'الوجبة', 'البيان', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الاحد', 'الأحد', 'فطور', 'غداء', 'عشاء', 'سحور', 'افطار', 'إفطار'];
-        
-        let candidateStringCells: string[] = [];
-        let candidateNumCells: number[] = [];
-
-        for (let i = 0; i < cells.length; i++) {
-           const c = cells[i];
-           if (!c) continue;
-           
-           const num = parseFloat(c);
-           // If the cell contains numbers and no significant text, treat as quantity
-           if (!isNaN(num) && /^[\d.,\s]+$/.test(c)) {
-               candidateNumCells.push(num);
-               continue;
-           }
-           
-           // It's a string
-           if (getDayFromText(c) || getMealTypeFromTextStrict(c)) continue; // Day/meal marker
-           if (headerWords.some(w => c === w || (c.includes(w) && c.length < w.length + 5))) continue; // Header
-           
-           candidateStringCells.push(c);
-        }
-
-        // If no string cell is found, this row might just be Day/Meal markers. Skip adding ingredients.
-        if (candidateStringCells.length === 0) return;
-
-        // Old format compatibility (if column 2 exists and isn't a known header)
-        let ingNameRaw = candidateStringCells[0]; // best guess
-        
-        // Check if the file matches standard old format: row[0]=Day, row[1]=Meal, row[2]=Ingredient, row[3]=Qty
-        if (cells.length > 2 && cells[2] && !headerWords.includes(cells[2]) && !getDayFromText(cells[2]) && !getMealTypeFromTextStrict(cells[2])) {
-           if (cells[2].length > 1) {
-              ingNameRaw = cells[2]; 
-           }
-        }
-
-        if (!ingNameRaw) return;
-
-        const key = `${currentDay}-${currentType}`;
+      const addParsed = (d: DayOfWeek, m: MealType, rawText: string, qty: number = 0, unit: string = '') => {
+        if (!rawText || typeof rawText !== 'string') return;
+        const key = `${d}-${m}`;
         if (!map.has(key)) {
-           map.set(key, {
-              id: generateId(), day: currentDay, type: currentType,
-              name: `${mealTypeLabels[currentType]} - ${daysLabels[currentDay]}`, ingredients: []
-           });
+          map.set(key, {
+            id: generateId(), day: d, type: m, name: `${mealTypeLabels[m]} - ${daysLabels[d]}`, ingredients: []
+          });
         }
-        
-        // Split combined ingredients (e.g., "شاي، زيت زيتون، جبن")
-        const ingNames = ingNameRaw.split(/[,،+\-\n]| و /).map(s => s.trim()).filter(s => s.length > 0);
-        
+        // split multiple ingredients in the same cell
+        const ingNames = rawText.split(/[,،+\-\n]| و /).map(s => s.trim()).filter(s => s.length > 0 && s !== '-' && s !== '/');
         ingNames.forEach(ingName => {
-          let qty = 0;
-          let unit = '';
-          
-          // Only use explicit row quantity if there was a single ingredient in the cell
-          if (ingNames.length === 1) {
-            qty = candidateNumCells.length > 0 ? candidateNumCells[0] : 0;
-            if (!qty && cells.length > 3) qty = parseFloat(cells[3]) || 0;
-            
-            // Try extracting unit
-            if (candidateStringCells.length > 1 && candidateStringCells[0] === ingName) {
-               unit = candidateStringCells[1];
-            } else if (cells.length > 4) {
-               unit = cells[4];
-            }
-          }
-
           map.get(key)!.ingredients.push({ id: generateId(), name: ingName, quantityPerPerson: qty, unit });
         });
-      });
+      };
+
+      const dayColMap: Record<number, DayOfWeek> = {};
+      const mealColMap: Record<number, MealType> = {};
+      let headerRowIdx = -1;
+
+      // Step 1: Detect Headers (Look for a row with Days or Meals)
+      for (let r = 0; r < json.length && r < 10; r++) {
+        const row = json[r];
+        if (!Array.isArray(row)) continue;
+        let dCount = 0;
+        let mCount = 0;
+        row.forEach((cell, c) => {
+          const s = String(cell || '').trim();
+          if (getDayFromText(s)) dCount++;
+          if (getMealTypeFromTextStrict(s)) mCount++;
+        });
+
+        if (dCount >= 3) {
+          row.forEach((cell, c) => {
+            const d = getDayFromText(String(cell));
+            if (d) dayColMap[c] = d;
+          });
+          headerRowIdx = r;
+          break;
+        } else if (mCount >= 2) {
+          row.forEach((cell, c) => {
+            const m = getMealTypeFromTextStrict(String(cell));
+            if (m) mealColMap[c] = m;
+          });
+          headerRowIdx = r;
+          break;
+        }
+      }
+
+      // Step 2: Extract data based on layout
+      if (Object.keys(dayColMap).length >= 3) {
+        // Layout A: Days on Top columns, Meals in rows
+        let currentMeal: MealType = mode === 'ramadan' ? 'iftar' : 'lunch';
+        for (let r = headerRowIdx + 1; r < json.length; r++) {
+          const row = json[r];
+          if (!Array.isArray(row)) continue;
+          
+          for (let c = 0; c < row.length; c++) {
+            if (dayColMap[c]) continue;
+            const m = getMealTypeFromTextStrict(String(row[c] || ''));
+            if (m) { currentMeal = m; break; }
+          }
+
+          for (const [colIdxStr, d] of Object.entries(dayColMap)) {
+            const c = parseInt(colIdxStr);
+            const cell = String(row[c] || '').trim();
+            if (cell && !getMealTypeFromTextStrict(cell) && !getDayFromText(cell)) {
+              addParsed(d, currentMeal, cell);
+            }
+          }
+        }
+      } else if (Object.keys(mealColMap).length >= 2) {
+        // Layout B: Meals on Top columns, Days in rows
+        let currentDay: DayOfWeek = 'monday';
+        for (let r = headerRowIdx + 1; r < json.length; r++) {
+          const row = json[r];
+          if (!Array.isArray(row)) continue;
+          
+          for (let c = 0; c < row.length; c++) {
+            if (mealColMap[c]) continue;
+            const d = getDayFromText(String(row[c] || ''));
+            if (d) { currentDay = d; break; }
+          }
+
+          for (const [colIdxStr, m] of Object.entries(mealColMap)) {
+            const c = parseInt(colIdxStr);
+            const cell = String(row[c] || '').trim();
+            if (cell && !getMealTypeFromTextStrict(cell) && !getDayFromText(cell)) {
+              addParsed(currentDay, m, cell);
+            }
+          }
+        }
+      } else {
+        // Layout C: Flat List (e.g. Day, Meal, Ingredient, Qty)
+        let currentDay: DayOfWeek = 'monday';
+        let currentType: MealType = mode === 'ramadan' ? 'iftar' : 'breakfast';
+        
+        let dayCol = -1, mealCol = -1, ingCol = -1, qtyCol = -1, unitCol = -1;
+        for (let r = 0; r < Math.min(json.length, 5); r++) {
+           const row = json[r];
+           if (!Array.isArray(row)) continue;
+           row.forEach((cell, c) => {
+             const s = String(cell || '').trim().toLowerCase();
+             if (s.includes('يوم') || s === 'day') dayCol = c;
+             if (s.includes('وجب') || s === 'meal') mealCol = c;
+             if (s.includes('مكون') || s.includes('مادة') || s.includes('صنف') || s.includes('بيان')) ingCol = c;
+             if (s.includes('كمي') || s.includes('مقدار')) qtyCol = c;
+             if (s.includes('وحد')) unitCol = c;
+           });
+           if (ingCol !== -1) break;
+        }
+
+        for (let r = 0; r < json.length; r++) {
+            const row = json[r];
+            if (!Array.isArray(row) || row.length === 0) continue;
+            
+            const cells = row.map(c => String(c === undefined || c === null ? '' : c).trim());
+            if (cells.every(c => !c)) continue;
+
+            let explicitDay = false;
+            let explicitMeal = false;
+            
+            if (dayCol !== -1 && cells[dayCol]) {
+               const d = getDayFromText(cells[dayCol]);
+               if (d) { currentDay = d; explicitDay = true; }
+            }
+            if (mealCol !== -1 && cells[mealCol]) {
+               const m = getMealTypeFromTextStrict(cells[mealCol]);
+               if (m) { currentType = m; explicitMeal = true; }
+            }
+            
+            if (!explicitDay) {
+              for (const c of cells) { const d = getDayFromText(c); if (d) { currentDay = d; break; } }
+            }
+            if (!explicitMeal) {
+              for (const c of cells) { const m = getMealTypeFromTextStrict(c); if (m) { currentType = m; break; } }
+            }
+            
+            let ingRaw = '';
+            let qty = 0;
+            let unit = '';
+            
+            if (ingCol !== -1) {
+               ingRaw = cells[ingCol];
+               if (qtyCol !== -1) qty = parseFloat(cells[qtyCol]) || 0;
+               if (unitCol !== -1) unit = cells[unitCol] || '';
+            } else {
+               // Fallback smart extraction
+               const candidateNums: number[] = [];
+               const candidateStrs: string[] = [];
+               for (const c of cells) {
+                  if (!c) continue;
+                  if (getDayFromText(c) || getMealTypeFromTextStrict(c)) continue;
+                  const n = parseFloat(c);
+                  if (!isNaN(n) && /^[\d.,\s]+$/.test(c)) { candidateNums.push(n); }
+                  else {
+                     const isHeader = ['المادة', 'المكون', 'الكمية', 'الوحدة', 'اليوم', 'الوجبة', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الاحد', 'الأحد', 'فطور', 'غداء', 'عشاء', 'سحور', 'افطار', 'إفطار'].some(h => c === h || c.includes(h));
+                     if (!isHeader) candidateStrs.push(c);
+                  }
+               }
+               
+               if (candidateStrs.length > 0) {
+                  ingRaw = candidateStrs[0];
+                  if (candidateNums.length > 0) qty = candidateNums[0];
+                  if (candidateStrs.length > 1) unit = candidateStrs[1];
+                  else if (cells.length > 3 && !parseFloat(cells[3])) unit = cells[3];
+               }
+            }
+            
+            if (ingRaw) {
+               addParsed(currentDay, currentType, ingRaw, qty, unit);
+            }
+        }
+      }
+
+      // Finalize: Autocomplete from references where possible
       const added = Array.from(map.values());
-      if (added.length) { setMeals([...meals, ...added]); alert('تم الاستيراد بنجاح!'); }
-      else alert('لم يتم العثور على بيانات صالحة.');
+      if (added.length) { 
+        const filled = added.map(m => ({
+          ...m, ingredients: m.ingredients.map(ing => {
+             if (!ing.quantityPerPerson || !ing.unit) {
+                const ref = findMatchingReference(referenceIngredients, ing.name);
+                if (ref) {
+                   return {
+                      ...ing,
+                      quantityPerPerson: ing.quantityPerPerson || ref.quantityPerPerson,
+                      unit: ing.unit || ref.unit
+                   };
+                }
+             }
+             return ing;
+          })
+        }));
+        setMeals([...meals, ...filled]); 
+        alert('تم الاستيراد والتوزيع الذكي بنجاح!'); 
+      } else {
+        alert('لم يتم العثور على بيانات صالحة. يرجى التأكد من محتوى الجدول.');
+      }
       if (menuFileRef.current) menuFileRef.current.value = '';
-    } catch { alert('خطأ في قراءة الملف'); }
+    } catch (err) { console.error(err); alert('حدث خطأ في قراءة الملف'); }
   };
 
   const addMeal = () => {
