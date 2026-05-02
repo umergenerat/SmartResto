@@ -12,6 +12,7 @@ interface MealCardProps {
   onDrop: (e: React.DragEvent, targetId: string) => void;
   onDragEnd: () => void;
   updateMeal: (id: string, field: keyof Meal, value: any) => void;
+  duplicateMeal: (id: string) => void;
   removeMeal: (id: string) => void;
   updateIngredient: (mealId: string, ingId: string, field: keyof Ingredient, value: string | number) => void;
   removeIngredient: (mealId: string, ingId: string) => void;
@@ -30,6 +31,7 @@ const MealCard: React.FC<MealCardProps> = ({
   onDrop,
   onDragEnd,
   updateMeal,
+  duplicateMeal,
   removeMeal,
   updateIngredient,
   removeIngredient,
@@ -68,9 +70,14 @@ const MealCard: React.FC<MealCardProps> = ({
             {Object.entries(mealTypeLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
-        <button onClick={() => removeMeal(meal.id)} className="btn-danger">
-          <Trash2 className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => duplicateMeal(meal.id)} className="btn-ghost hover:bg-blue-500/10 text-blue-400 p-1.5 rounded-lg transition-colors" title="نسخ الوجبة">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+          </button>
+          <button onClick={() => removeMeal(meal.id)} className="btn-danger p-1.5" title="حذف الوجبة">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Ingredients */}

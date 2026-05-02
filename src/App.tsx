@@ -8,6 +8,7 @@ import MenuBuilder from './components/MenuBuilder';
 import ResultsPanel from './components/ResultsPanel';
 import EvaluationPanel from './components/EvaluationPanel';
 import SyncPanel from './components/SyncPanel';
+import CalculatorPanel from './components/CalculatorPanel';
 
 // ─── Utility helpers (exported so components can import them) ───────────────
 
@@ -82,7 +83,7 @@ const daysLabels: Record<DayOfWeek, string> = {
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 
-type Tab = 'dashboard' | 'config' | 'menu' | 'results' | 'evaluation' | 'sync';
+type Tab = 'dashboard' | 'config' | 'menu' | 'results' | 'calculator' | 'evaluation' | 'sync';
 
 export default function App() {
   // ── Persisted state ────────────────────────────────────────────────────────
@@ -345,6 +346,13 @@ export default function App() {
             mode={mode}
             filterDay={filterDay} setFilterDay={setFilterDay}
             filterMealType={filterMealType} setFilterMealType={setFilterMealType}
+          />
+        )}
+
+        {activeTab === 'calculator' && (
+          <CalculatorPanel
+            beneficiaries={beneficiaries}
+            referenceIngredients={referenceIngredients}
           />
         )}
 

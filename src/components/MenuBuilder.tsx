@@ -333,6 +333,20 @@ export default function MenuBuilder({
 
   const removeMeal = (id: string) => setMeals(meals.filter(m => m.id !== id));
 
+  const duplicateMeal = (id: string) => {
+    const mealToCopy = meals.find(m => m.id === id);
+    if (!mealToCopy) return;
+    const newMeal = {
+      ...mealToCopy,
+      id: generateId(),
+      ingredients: mealToCopy.ingredients.map(ing => ({ ...ing, id: generateId() }))
+    };
+    const index = meals.findIndex(m => m.id === id);
+    const newMeals = [...meals];
+    newMeals.splice(index + 1, 0, newMeal);
+    setMeals(newMeals);
+  };
+
   const addIngredient = (mealId: string) =>
     setMeals(meals.map(m => m.id === mealId ? { ...m, ingredients: [...m.ingredients, { id: generateId(), name: '', quantityPerPerson: 0, unit: '' }] } : m));
 
@@ -610,6 +624,7 @@ export default function MenuBuilder({
             onDrop={onDrop}
             onDragEnd={() => setDraggingMealId(null)}
             updateMeal={updateMeal}
+            duplicateMeal={duplicateMeal}
             removeMeal={removeMeal}
             updateIngredient={updateIngredient}
             removeIngredient={removeIngredient}

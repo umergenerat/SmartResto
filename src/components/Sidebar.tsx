@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { UtensilsCrossed, Settings, CalendarDays, Calculator, ScanSearch, ChefHat, Download, RefreshCw } from 'lucide-react';
+import { UtensilsCrossed, Settings, CalendarDays, Calculator, ScanSearch, ChefHat, Download, RefreshCw, ClipboardList } from 'lucide-react';
 
-type Tab = 'dashboard' | 'config' | 'menu' | 'results' | 'evaluation' | 'sync';
+type Tab = 'dashboard' | 'config' | 'menu' | 'results' | 'calculator' | 'evaluation' | 'sync';
 
 interface SidebarProps {
   activeTab: Tab;
@@ -15,6 +15,7 @@ const navItems = [
   { id: 'config'    as Tab, icon: Settings, label: 'الإعدادات والمستفيدين' },
   { id: 'menu'      as Tab, icon: CalendarDays, label: 'إدارة القوائم' },
   { id: 'results'   as Tab, icon: Calculator, label: 'حساب الكميات' },
+  { id: 'calculator'as Tab, icon: ClipboardList, label: 'حاسبة التوقعات' },
   { id: 'evaluation'as Tab, icon: ScanSearch, label: 'تقييم الأطباق (AI)' },
   { id: 'sync'      as Tab, icon: RefreshCw, label: 'المزامنة والنسخ' },
 ];
