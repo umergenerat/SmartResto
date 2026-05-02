@@ -353,6 +353,8 @@ export default function App() {
           <CalculatorPanel
             beneficiaries={beneficiaries}
             referenceIngredients={referenceIngredients}
+            meals={meals}
+            mode={mode}
           />
         )}
 

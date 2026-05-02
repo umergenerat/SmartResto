@@ -1,32 +1,35 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Calculator as CalculatorIcon, Wand2 } from 'lucide-react';
-import { Beneficiaries, ReferenceIngredient } from '../types';
-import { findMatchingReference } from '../App';
+import { Beneficiaries, ReferenceIngredient, Meal, ScheduleMode } from '../types';
+import { findMatchingReference, normalizeIngredientName } from '../App';
 
 interface CalculatorPanelProps {
   beneficiaries: Beneficiaries;
   referenceIngredients: ReferenceIngredient[];
+  meals: Meal[];
+  mode: ScheduleMode;
 }
 
 interface CalcRow {
   id: string;
   name: string;
-  qtyFull: number;
-  qtyHalf: number;
+  qtyPerPerson: number;
+  freqFull: number;
+  freqHalf: number;
   unit: string;
 }
 
-export default function CalculatorPanel({ beneficiaries, referenceIngredients }: CalculatorPanelProps) {
+export default function CalculatorPanel({ beneficiaries, referenceIngredients, meals, mode }: CalculatorPanelProps) {
   const [days, setDays] = useState(30);
   const [fullBoard, setFullBoard] = useState(beneficiaries.fullBoard);
   const [halfBoard, setHalfBoard] = useState(beneficiaries.halfBoard);
   
   const [rows, setRows] = useState<CalcRow[]>([
-    { id: '1', name: '', qtyFull: 0, qtyHalf: 0, unit: 'غ' }
+    { id: '1', name: '', qtyPerPerson: 0, freqFull: 0, freqHalf: 0, unit: 'غ' }
   ]);
 
   const addRow = () => {
-    setRows([...rows, { id: Math.random().toString(36).substring(2), name: '', qtyFull: 0, qtyHalf: 0, unit: 'غ' }]);
+    setRows([...rows, { id: Math.random().toString(36).substring(2), name: '', qtyPerPerson: 0, freqFull: 0, freqHalf: 0, unit: 'غ' }]);
   };
 
   const removeRow = (id: string) => {
@@ -34,26 +37,104 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients }:
   };
 
   const updateRow = (id: string, field: keyof CalcRow, value: any) => {
-    setRows(rows.map(r => r.id === id ? { ...r, [field]: value } : r));
-  };
-
-  const autoFillFromRef = () => {
-    const updated = rows.map(r => {
-      if (r.name && (!r.qtyFull && !r.qtyHalf)) {
-        const ref = findMatchingReference(referenceIngredients, r.name);
-        if (ref) {
-          // By default, assume the material applies to full board at least
-          return { ...r, qtyFull: ref.quantityPerPerson, qtyHalf: 0, unit: ref.unit || 'غ' };
+    setRows(rows.map(r => {
+      if (r.id === id) {
+        const newRow = { ...r, [field]: value };
+        if (field === 'name') {
+          // Auto-fill from reference and schedule
+          const ref = findMatchingReference(referenceIngredients, value);
+          if (ref && !r.qtyPerPerson) {
+            newRow.qtyPerPerson = ref.quantityPerPerson;
+            newRow.unit = ref.unit || r.unit;
+          }
+          const freqs = getFrequencies(value);
+          if (freqs.freqFull > 0 || freqs.freqHalf > 0) {
+            newRow.freqFull = freqs.freqFull;
+            newRow.freqHalf = freqs.freqHalf;
+          }
         }
+        return newRow;
       }
       return r;
+    }));
+  };
+
+  const getFrequencies = (ingredientName: string) => {
+    let freqFull = 0;
+    let freqHalf = 0;
+    const nName = normalizeIngredientName(ingredientName);
+    
+    meals.forEach(meal => {
+      let servesFull = false;
+      let servesHalf = false;
+
+      if (mode === 'normal') {
+        if (meal.type === 'breakfast' || meal.type === 'dinner') servesFull = true;
+        else if (meal.type === 'lunch') { servesFull = true; servesHalf = true; }
+      } else {
+        if (meal.type === 'suhoor' || meal.type === 'dinner' || meal.type === 'breakfast') servesFull = true;
+        else if (meal.type === 'iftar' || meal.type === 'lunch') { servesFull = true; servesHalf = true; }
+      }
+      
+      const hasIng = meal.ingredients.some(ing => normalizeIngredientName(ing.name) === nName);
+      if (hasIng) {
+        if (servesFull) freqFull += 1;
+        if (servesHalf) freqHalf += 1;
+      }
     });
-    setRows(updated);
+
+    return { freqFull, freqHalf };
+  };
+
+  const autoFillFromSchedule = () => {
+    const freqMap = new Map<string, { freqFull: number, freqHalf: number, unit: string }>();
+
+    meals.forEach(meal => {
+      let servesFull = false;
+      let servesHalf = false;
+
+      if (mode === 'normal') {
+        if (meal.type === 'breakfast' || meal.type === 'dinner') { servesFull = true; }
+        else if (meal.type === 'lunch') { servesFull = true; servesHalf = true; }
+      } else {
+        if (meal.type === 'suhoor' || meal.type === 'dinner' || meal.type === 'breakfast') { servesFull = true; }
+        else if (meal.type === 'iftar' || meal.type === 'lunch') { servesFull = true; servesHalf = true; }
+      }
+      
+      meal.ingredients.forEach(ing => {
+        const key = ing.name;
+        if (!freqMap.has(key)) {
+          freqMap.set(key, { freqFull: 0, freqHalf: 0, unit: ing.unit || 'غ' });
+        }
+        const ex = freqMap.get(key)!;
+        if (servesFull) ex.freqFull += 1;
+        if (servesHalf) ex.freqHalf += 1;
+      });
+    });
+
+    const newRows: CalcRow[] = [];
+    freqMap.forEach((val, name) => {
+      const ref = findMatchingReference(referenceIngredients, name);
+      newRows.push({
+        id: Math.random().toString(36).substring(2),
+        name,
+        qtyPerPerson: ref?.quantityPerPerson || 0,
+        freqFull: val.freqFull,
+        freqHalf: val.freqHalf,
+        unit: ref?.unit || val.unit
+      });
+    });
+
+    if (newRows.length > 0) {
+      setRows(newRows);
+    } else {
+      alert('البرنامج الأسبوعي فارغ. لا توجد مواد لاستيرادها.');
+    }
   };
 
   const clearRows = () => {
     if (window.confirm('هل تريد مسح جميع السطور؟')) {
-      setRows([{ id: Math.random().toString(36).substring(2), name: '', qtyFull: 0, qtyHalf: 0, unit: 'غ' }]);
+      setRows([{ id: Math.random().toString(36).substring(2), name: '', qtyPerPerson: 0, freqFull: 0, freqHalf: 0, unit: 'غ' }]);
     }
   };
 
@@ -108,8 +189,8 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients }:
             <CalculatorIcon className="w-5 h-5 text-blue-400" /> المواد والكميات المخصصة
           </h3>
           <div className="flex items-center gap-2">
-            <button onClick={autoFillFromRef} className="btn-ghost text-xs py-1.5 px-3">
-              <Wand2 className="w-3.5 h-3.5" /> تعبئة من المرجع
+            <button onClick={autoFillFromSchedule} className="btn-ghost text-xs py-1.5 px-3">
+              <Wand2 className="w-3.5 h-3.5" /> استيراد من البرنامج الأسبوعي
             </button>
             <button onClick={clearRows} className="btn-danger text-xs py-1.5 px-3">مسح</button>
           </div>
@@ -119,9 +200,10 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients }:
           <table className="w-full text-sm text-right">
             <thead>
               <tr style={{ background: 'rgba(0,0,0,0.2)' }}>
-                <th className="p-3 font-semibold text-slate-300 w-1/3">المادة</th>
-                <th className="p-3 font-semibold text-slate-300 text-center">الكمية/كاملة (يومياً)</th>
-                <th className="p-3 font-semibold text-slate-300 text-center">الكمية/نصف (يومياً)</th>
+                <th className="p-3 font-semibold text-slate-300 w-1/4">المادة</th>
+                <th className="p-3 font-semibold text-slate-300 text-center">الكمية/للفرد</th>
+                <th className="p-3 font-semibold text-slate-300 text-center">مرات التقديم أسبوعياً (كاملة)</th>
+                <th className="p-3 font-semibold text-slate-300 text-center">مرات التقديم أسبوعياً (نصف)</th>
                 <th className="p-3 font-semibold text-slate-300 text-center">الوحدة</th>
                 <th className="p-3 font-semibold text-emerald-400 text-center">الكمية الإجمالية المطلوبة</th>
                 <th className="p-3 w-12"></th>
@@ -129,8 +211,9 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients }:
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
               {rows.map((row) => {
-                const totalFull = (row.qtyFull || 0) * (fullBoard || 0) * (days || 0);
-                const totalHalf = (row.qtyHalf || 0) * (halfBoard || 0) * (days || 0);
+                const weeks = (days || 0) / 7;
+                const totalFull = (row.qtyPerPerson || 0) * (fullBoard || 0) * (row.freqFull || 0) * weeks;
+                const totalHalf = (row.qtyPerPerson || 0) * (halfBoard || 0) * (row.freqHalf || 0) * weeks;
                 const total = totalFull + totalHalf;
                 
                 // Smart display logic for units
@@ -156,15 +239,22 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients }:
                     </td>
                     <td className="p-2">
                       <input 
-                        type="number" min="0" step="0.01" value={row.qtyFull || ''} 
-                        onChange={e => updateRow(row.id, 'qtyFull', Number(e.target.value))}
+                        type="number" min="0" step="0.01" value={row.qtyPerPerson || ''} 
+                        onChange={e => updateRow(row.id, 'qtyPerPerson', Number(e.target.value))}
+                        className="w-full bg-black/20 border border-transparent focus:border-blue-500 rounded p-1 text-center outline-none text-blue-100 font-medium"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <input 
+                        type="number" min="0" step="1" value={row.freqFull || ''} 
+                        onChange={e => updateRow(row.id, 'freqFull', Number(e.target.value))}
                         className="w-full bg-black/20 border border-transparent focus:border-blue-500 rounded p-1 text-center outline-none"
                       />
                     </td>
                     <td className="p-2">
                       <input 
-                        type="number" min="0" step="0.01" value={row.qtyHalf || ''} 
-                        onChange={e => updateRow(row.id, 'qtyHalf', Number(e.target.value))}
+                        type="number" min="0" step="1" value={row.freqHalf || ''} 
+                        onChange={e => updateRow(row.id, 'freqHalf', Number(e.target.value))}
                         className="w-full bg-black/20 border border-transparent focus:border-blue-500 rounded p-1 text-center outline-none"
                       />
                     </td>

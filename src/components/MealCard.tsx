@@ -1,5 +1,5 @@
 import React from 'react';
-import { GripVertical, Trash2, Plus } from 'lucide-react';
+import { GripVertical, Trash2, Plus, ArrowUp, ArrowDown } from 'lucide-react';
 import { Meal, DayOfWeek, MealType, ReferenceIngredient, Ingredient } from '../types';
 import { findMatchingReference } from '../App';
 
@@ -12,6 +12,8 @@ interface MealCardProps {
   onDrop: (e: React.DragEvent, targetId: string) => void;
   onDragEnd: () => void;
   updateMeal: (id: string, field: keyof Meal, value: any) => void;
+  moveMealUp: () => void;
+  moveMealDown: () => void;
   duplicateMeal: (id: string) => void;
   removeMeal: (id: string) => void;
   updateIngredient: (mealId: string, ingId: string, field: keyof Ingredient, value: string | number) => void;
@@ -31,6 +33,8 @@ const MealCard: React.FC<MealCardProps> = ({
   onDrop,
   onDragEnd,
   updateMeal,
+  moveMealUp,
+  moveMealDown,
   duplicateMeal,
   removeMeal,
   updateIngredient,
@@ -53,7 +57,9 @@ const MealCard: React.FC<MealCardProps> = ({
       <div className="px-5 py-4 border-b flex flex-wrap items-center justify-between gap-3"
            style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
         <div className="flex flex-1 items-center gap-3 flex-wrap">
-          <GripVertical className="w-4 h-4 text-slate-600 cursor-move hidden md:block" />
+          <div className="cursor-move p-1 -ml-2 rounded hover:bg-white/5" title="اسحب للترتيب">
+            <GripVertical className="w-4 h-4 text-slate-500" />
+          </div>
           <div className="w-2 h-2 rounded-full shrink-0" style={{ background: typeColors[meal.type] }} />
           <input
             type="text" value={meal.name}
@@ -70,7 +76,15 @@ const MealCard: React.FC<MealCardProps> = ({
             {Object.entries(mealTypeLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex flex-col gap-0.5 ml-2 border-l border-white/10 pl-3">
+            <button onClick={moveMealUp} className="text-slate-500 hover:text-emerald-400 p-0.5 rounded transition-colors" title="تحريك لأعلى">
+              <ArrowUp className="w-4 h-4" />
+            </button>
+            <button onClick={moveMealDown} className="text-slate-500 hover:text-emerald-400 p-0.5 rounded transition-colors" title="تحريك لأسفل">
+              <ArrowDown className="w-4 h-4" />
+            </button>
+          </div>
           <button onClick={() => duplicateMeal(meal.id)} className="btn-ghost hover:bg-blue-500/10 text-blue-400 p-1.5 rounded-lg transition-colors" title="نسخ الوجبة">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
           </button>

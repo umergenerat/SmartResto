@@ -7,6 +7,7 @@ import { Meal, ScheduleMode, MealType, DayOfWeek, ReferenceIngredient, Ingredien
 import { findMatchingReference, normalizeIngredientName } from '../App';
 import * as xlsx from 'xlsx';
 import MealCard from './MealCard';
+import { ArrowUp, ArrowDown } from 'lucide-react';
 
 interface MenuBuilderProps {
   meals: Meal[];
@@ -388,7 +389,11 @@ export default function MenuBuilder({
     else alert('لا توجد كميات فارغة مطابقة');
   };
 
-  const onDragStart = (e: React.DragEvent, id: string) => { setDraggingMealId(id); e.dataTransfer.effectAllowed = 'move'; };
+  const onDragStart = (e: React.DragEvent, id: string) => { 
+    setDraggingMealId(id); 
+    e.dataTransfer.effectAllowed = 'move'; 
+    e.dataTransfer.setData('text/plain', id);
+  };
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
   const onDrop = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
@@ -401,6 +406,34 @@ export default function MenuBuilder({
     arr.splice(ti, 0, moved);
     setMeals(arr);
     setDraggingMealId(null);
+  };
+
+  const moveMeal = (id: string, direction: 'up' | 'down') => {
+    const currentIndex = meals.findIndex(m => m.id === id);
+    if (currentIndex === -1) return;
+
+    let targetIndex = -1;
+    if (activeDay === 'all') {
+      targetIndex = currentIndex + (direction === 'up' ? -1 : 1);
+    } else {
+      if (direction === 'up') {
+        for (let i = currentIndex - 1; i >= 0; i--) {
+          if (meals[i].day === activeDay) { targetIndex = i; break; }
+        }
+      } else {
+        for (let i = currentIndex + 1; i < meals.length; i++) {
+          if (meals[i].day === activeDay) { targetIndex = i; break; }
+        }
+      }
+    }
+
+    if (targetIndex >= 0 && targetIndex < meals.length) {
+      const newMeals = [...meals];
+      const temp = newMeals[currentIndex];
+      newMeals[currentIndex] = newMeals[targetIndex];
+      newMeals[targetIndex] = temp;
+      setMeals(newMeals);
+    }
   };
 
   const duplicateDay = (sourceDay: DayOfWeek, targetDay: DayOfWeek) => {
@@ -624,6 +657,8 @@ export default function MenuBuilder({
             onDrop={onDrop}
             onDragEnd={() => setDraggingMealId(null)}
             updateMeal={updateMeal}
+            moveMealUp={() => moveMeal(meal.id, 'up')}
+            moveMealDown={() => moveMeal(meal.id, 'down')}
             duplicateMeal={duplicateMeal}
             removeMeal={removeMeal}
             updateIngredient={updateIngredient}
