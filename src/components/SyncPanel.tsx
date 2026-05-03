@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Download, Upload, Copy, Check, RefreshCw, Smartphone, QrCode, Scan } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Html5QrcodeScanner, Html5QrcodeScanType } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { Meal, Beneficiaries, ScheduleMode, ReferenceIngredient, ApiSettings } from '../types';
 
 interface SyncPanelProps {
@@ -72,8 +72,13 @@ export default function SyncPanel({
 
   const handleCopyText = () => {
     const dataStr = JSON.stringify(getSyncData());
-    // Encode to base64 for easy copying via Whatsapp/etc
-    const base64 = btoa(encodeURIComponent(dataStr));
+    const bytes = new TextEncoder().encode(dataStr);
+    let binString = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binString += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binString);
+    
     navigator.clipboard.writeText(base64).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
@@ -110,9 +115,24 @@ export default function SyncPanel({
   const handlePasteData = () => {
     if (!pasteData) return;
     try {
-      const decoded = decodeURIComponent(atob(pasteData.trim()));
-      const data = JSON.parse(decoded);
-      loadData(data);
+      const base64 = pasteData.trim();
+      const binString = atob(base64);
+      
+      try {
+        const bytes = new Uint8Array(binString.length);
+        for (let i = 0; i < binString.length; i++) {
+          bytes[i] = binString.charCodeAt(i);
+        }
+        const decoded = new TextDecoder().decode(bytes);
+        const data = JSON.parse(decoded);
+        loadData(data);
+      } catch (e) {
+        // Fallback for older versions
+        const decoded = decodeURIComponent(binString);
+        const data = JSON.parse(decoded);
+        loadData(data);
+      }
+      
       setPasteData('');
       setMsg('تم استيراد البيانات من النص بنجاح!');
     } catch (err) {
@@ -121,10 +141,18 @@ export default function SyncPanel({
   };
 
   // --- QR Generator Logic ---
-  const CHUNK_SIZE = 400; // max safe size for reliable fast scanning
+  const CHUNK_SIZE = 250; // max safe size for reliable fast scanning
   const startGeneratingQR = () => {
     const dataStr = JSON.stringify(getSyncData());
-    const base64 = btoa(encodeURIComponent(dataStr));
+    
+    // Optimized Base64 encoding for Unicode (reduces size dramatically)
+    const bytes = new TextEncoder().encode(dataStr);
+    let binString = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binString += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binString);
+    
     const total = Math.ceil(base64.length / CHUNK_SIZE);
     const chunks: string[] = [];
     for (let i = 0; i < total; i++) {
@@ -141,7 +169,7 @@ export default function SyncPanel({
     if (isGeneratingQR && qrChunks.length > 0) {
       interval = setInterval(() => {
         setChunkIdx((prev) => (prev + 1) % qrChunks.length);
-      }, 350); // Fast transition for multi-part
+      }, 400); // 400ms allows camera enough time to grab each frame securely
     }
     return () => clearInterval(interval);
   }, [isGeneratingQR, qrChunks]);
@@ -149,68 +177,122 @@ export default function SyncPanel({
 
   // --- QR Scanner Logic ---
   useEffect(() => {
-    if (isScanningQR) {
-      // Reset state
-      scannedChunksRef.current = [];
-      totalChunksRef.current = 0;
-      setScanProgress({ current: 0, total: 0 });
-      setMsg('');
+    let html5QrCode: Html5Qrcode | null = null;
+    let isComponentMounted = true;
 
-      const scanner = new Html5QrcodeScanner("qr-reader", { 
-        fps: 15, 
-        qrbox: { width: 300, height: 300 },
-        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
-        videoConstraints: { facingMode: "environment" }
-      }, false);
-      
-      let isDone = false;
-
-      scanner.render((text) => {
-        if (isDone) return;
-        const parts = text.split('|');
-        if (parts.length >= 2) {
-          const header = parts[0].split('/');
-          if (header.length === 2) {
-            const m = parseInt(header[0], 10);
-            const n = parseInt(header[1], 10);
-            const dataPart = parts.slice(1).join('|');
-            
-            if (totalChunksRef.current === 0) {
-              totalChunksRef.current = n;
-              scannedChunksRef.current = new Array(n).fill(null);
-            }
-            
-            if (m > 0 && m <= n && !scannedChunksRef.current[m - 1]) {
-              scannedChunksRef.current[m - 1] = dataPart;
-              const currentCount = scannedChunksRef.current.filter(Boolean).length;
-              setScanProgress({ current: currentCount, total: n });
-              beep(); // feedback beep on new chunk
+    const startScanner = async () => {
+      try {
+        html5QrCode = new Html5Qrcode("qr-reader");
+        const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+        
+        let isDone = false;
+        const onScanSuccess = (text: string) => {
+          if (isDone) return;
+          const parts = text.split('|');
+          if (parts.length >= 2) {
+            const header = parts[0].split('/');
+            if (header.length === 2) {
+              const m = parseInt(header[0], 10);
+              const n = parseInt(header[1], 10);
+              const dataPart = parts.slice(1).join('|');
               
-              if (currentCount === n) {
-                isDone = true;
-                scanner.clear();
-                setIsScanningQR(false);
-                try {
-                  const fullBase64 = scannedChunksRef.current.join('');
-                  const decoded = decodeURIComponent(atob(fullBase64));
-                  const data = JSON.parse(decoded);
-                  loadData(data);
-                  setMsg('تم مسح واستيراد البيانات عبر QR بنجاح!');
-                } catch(err) {
-                  setMsg('حدث خطأ في تجميع أو معالجة بيانات الـ QR.');
+              if (totalChunksRef.current === 0) {
+                totalChunksRef.current = n;
+                scannedChunksRef.current = new Array(n).fill(null);
+              }
+              
+              if (m > 0 && m <= n && !scannedChunksRef.current[m - 1]) {
+                scannedChunksRef.current[m - 1] = dataPart;
+                const currentCount = scannedChunksRef.current.filter(Boolean).length;
+                setScanProgress({ current: currentCount, total: n });
+                beep(); // feedback beep on new chunk
+                
+                if (currentCount === n) {
+                  isDone = true;
+                  
+                  const processScan = () => {
+                    try {
+                      const fullBase64 = scannedChunksRef.current.join('');
+                      const binString = atob(fullBase64);
+                      
+                      try {
+                        const bytes = new Uint8Array(binString.length);
+                        for (let i = 0; i < binString.length; i++) {
+                          bytes[i] = binString.charCodeAt(i);
+                        }
+                        const decoded = new TextDecoder().decode(bytes);
+                        const data = JSON.parse(decoded);
+                        loadData(data);
+                      } catch (e1) {
+                        const decoded = decodeURIComponent(binString);
+                        const data = JSON.parse(decoded);
+                        loadData(data);
+                      }
+                      
+                      if (isComponentMounted) setMsg('تم مسح واستيراد البيانات عبر QR بنجاح!');
+                    } catch(err) {
+                      if (isComponentMounted) setMsg('حدث خطأ في تجميع أو معالجة بيانات الـ QR.');
+                    }
+                  };
+
+                  if (html5QrCode && html5QrCode.isScanning) {
+                    html5QrCode.stop().then(() => {
+                      html5QrCode?.clear();
+                      if (isComponentMounted) setIsScanningQR(false);
+                      processScan();
+                    }).catch(() => {
+                      if (isComponentMounted) setIsScanningQR(false);
+                      processScan();
+                    });
+                  } else {
+                    if (isComponentMounted) setIsScanningQR(false);
+                    processScan();
+                  }
                 }
               }
             }
           }
-        }
-      }, () => {
-        // ignore scan frame errors to keep scanning
-      });
+        };
 
-      return () => {
-        scanner.clear().catch(e => console.error("Failed to clear scanner", e));
-      };
+        // Try environment camera first
+        try {
+          await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
+        } catch (e) {
+          // Fallback to user camera if environment is not available
+          if (isComponentMounted) {
+            try {
+              await html5QrCode.start({ facingMode: "user" }, config, onScanSuccess, () => {});
+            } catch (e2) {
+              if (isComponentMounted) setMsg("تعذر الوصول إلى الكاميرا. يرجى التأكد من الصلاحيات.");
+            }
+          }
+        }
+      } catch (err) {
+        console.error("QR Scanner Error:", err);
+        if (isComponentMounted) {
+          setMsg("تعذر تشغيل الكاميرا.");
+        }
+      }
+    };
+
+    if (isScanningQR) {
+      scannedChunksRef.current = [];
+      totalChunksRef.current = 0;
+      setScanProgress({ current: 0, total: 0 });
+      setMsg('');
+      
+      // Delay start slightly to ensure DOM element is ready
+      setTimeout(() => {
+        if (isComponentMounted) startScanner();
+      }, 100);
     }
+
+    return () => {
+      isComponentMounted = false;
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => html5QrCode?.clear()).catch(console.error);
+      }
+    };
   }, [isScanningQR]);
 
   return (
@@ -329,7 +411,7 @@ export default function SyncPanel({
                 تم التقاط: {scanProgress.current} من {scanProgress.total} أجزاء
               </p>
             )}
-            <div id="qr-reader" className="mx-auto rounded-xl overflow-hidden w-full max-w-sm" />
+            <div id="qr-reader" className="mx-auto rounded-xl overflow-hidden w-full max-w-sm bg-black" style={{ minHeight: '300px' }} />
           </div>
         )}
 
@@ -343,7 +425,7 @@ export default function SyncPanel({
             <div className="p-4 bg-white rounded-2xl inline-block shadow-xl">
               <QRCodeSVG 
                 value={qrChunks[chunkIdx]} 
-                size={250} 
+                size={300} 
                 level="L" // L is low error correction for smaller simpler QR codes (faster scanning)
               />
             </div>
