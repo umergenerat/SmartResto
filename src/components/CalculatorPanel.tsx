@@ -19,10 +19,24 @@ interface CalcRow {
   unit: string;
 }
 
+interface Period {
+  id: string;
+  startDate: string;
+  endDate: string;
+  fullBoard: number;
+  halfBoard: number;
+}
+
 export default function CalculatorPanel({ beneficiaries, referenceIngredients, meals, mode }: CalculatorPanelProps) {
-  const [days, setDays] = useState(30);
-  const [fullBoard, setFullBoard] = useState(beneficiaries.fullBoard);
-  const [halfBoard, setHalfBoard] = useState(beneficiaries.halfBoard);
+  const [periods, setPeriods] = useState<Period[]>([
+    {
+      id: '1',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      fullBoard: beneficiaries.fullBoard,
+      halfBoard: beneficiaries.halfBoard
+    }
+  ]);
   
   const [rows, setRows] = useState<CalcRow[]>([
     { id: '1', name: '', qtyPerPerson: 0, freqFull: 0, freqHalf: 0, unit: 'غ' }
@@ -34,6 +48,43 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients, m
 
   const removeRow = (id: string) => {
     setRows(rows.filter(r => r.id !== id));
+  };
+
+  const addPeriod = () => {
+    const lastPeriod = periods[periods.length - 1];
+    let nextStart = new Date();
+    if (lastPeriod) {
+      nextStart = new Date(lastPeriod.endDate);
+      nextStart.setDate(nextStart.getDate() + 1);
+    }
+    const nextEnd = new Date(nextStart);
+    nextEnd.setDate(nextEnd.getDate() + 30);
+    
+    setPeriods([...periods, { 
+      id: Math.random().toString(36).substring(2), 
+      startDate: nextStart.toISOString().split('T')[0], 
+      endDate: nextEnd.toISOString().split('T')[0], 
+      fullBoard: lastPeriod ? lastPeriod.fullBoard : beneficiaries.fullBoard, 
+      halfBoard: lastPeriod ? lastPeriod.halfBoard : beneficiaries.halfBoard 
+    }]);
+  };
+
+  const removePeriod = (id: string) => {
+    setPeriods(periods.filter(p => p.id !== id));
+  };
+
+  const updatePeriod = (id: string, field: keyof Period, value: any) => {
+    setPeriods(periods.map(p => p.id === id ? { ...p, [field]: value } : p));
+  };
+
+  const calculatePeriodDays = (start: string, end: string) => {
+    if (!start || !end) return 0;
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return 0;
+    const diffTime = e.getTime() - s.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return diffDays > 0 ? diffDays : 0;
   };
 
   const updateRow = (id: string, field: keyof CalcRow, value: any) => {
@@ -147,38 +198,58 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients, m
         </div>
       </div>
 
-      {/* Global Parameters */}
-      <div className="glass-card p-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div>
-          <label className="block text-sm font-bold text-slate-200 mb-2">عدد أيام الإطعام المقترحة</label>
-          <div className="relative">
-            <input 
-              type="number" min="1" value={days || ''} 
-              onChange={e => setDays(Number(e.target.value))}
-              className="smart-input pl-10 text-lg font-bold" 
-            />
-            <CalendarIcon className="w-5 h-5 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          </div>
+      {/* Periods Configuration */}
+      <div className="glass-card p-6 space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="font-bold text-slate-200 flex items-center gap-2">
+            <CalendarIcon className="w-5 h-5 text-emerald-400" /> فترات الإطعام وأعداد المستفيدين
+          </h3>
+          <button onClick={addPeriod} className="btn-ghost text-xs py-1.5 px-3">
+            <Plus className="w-3.5 h-3.5" /> إضافة فترة
+          </button>
         </div>
-        <div>
-          <label className="block text-sm font-bold text-slate-200 mb-2">أفراد المنحة الكاملة</label>
-          <div className="relative">
-            <input 
-              type="number" min="0" value={fullBoard || ''} 
-              onChange={e => setFullBoard(Number(e.target.value))}
-              className="smart-input text-lg font-bold" 
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-slate-200 mb-2">أفراد نصف المنحة</label>
-          <div className="relative">
-            <input 
-              type="number" min="0" value={halfBoard || ''} 
-              onChange={e => setHalfBoard(Number(e.target.value))}
-              className="smart-input text-lg font-bold" 
-            />
-          </div>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-right">
+            <thead>
+              <tr className="text-slate-400 border-b" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+                <th className="pb-2 font-semibold">من تاريخ</th>
+                <th className="pb-2 font-semibold">إلى تاريخ</th>
+                <th className="pb-2 font-semibold text-center">أيام</th>
+                <th className="pb-2 font-semibold text-center">أفراد المنحة الكاملة</th>
+                <th className="pb-2 font-semibold text-center">أفراد نصف المنحة</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+              {periods.map(period => (
+                <tr key={period.id} className="hover:bg-white/5 transition-colors">
+                  <td className="py-2 pr-2">
+                    <input type="date" value={period.startDate} onChange={e => updatePeriod(period.id, 'startDate', e.target.value)} className="smart-input text-sm p-1.5" />
+                  </td>
+                  <td className="py-2">
+                    <input type="date" value={period.endDate} onChange={e => updatePeriod(period.id, 'endDate', e.target.value)} className="smart-input text-sm p-1.5" />
+                  </td>
+                  <td className="py-2 text-center text-emerald-400 font-bold">
+                    {calculatePeriodDays(period.startDate, period.endDate)}
+                  </td>
+                  <td className="py-2 px-1">
+                    <input type="number" min="0" value={period.fullBoard === 0 ? '' : period.fullBoard} onChange={e => updatePeriod(period.id, 'fullBoard', Number(e.target.value))} className="smart-input text-sm p-1.5 text-center w-full" />
+                  </td>
+                  <td className="py-2 px-1">
+                    <input type="number" min="0" value={period.halfBoard === 0 ? '' : period.halfBoard} onChange={e => updatePeriod(period.id, 'halfBoard', Number(e.target.value))} className="smart-input text-sm p-1.5 text-center w-full" />
+                  </td>
+                  <td className="py-2 text-left pl-2">
+                    {periods.length > 1 && (
+                      <button onClick={() => removePeriod(period.id)} className="text-red-400/50 hover:text-red-400 transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -211,9 +282,18 @@ export default function CalculatorPanel({ beneficiaries, referenceIngredients, m
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
               {rows.map((row) => {
-                const weeks = (days || 0) / 7;
-                const totalFull = (row.qtyPerPerson || 0) * (fullBoard || 0) * (row.freqFull || 0) * weeks;
-                const totalHalf = (row.qtyPerPerson || 0) * (halfBoard || 0) * (row.freqHalf || 0) * weeks;
+                let totalFullBoardWeeks = 0;
+                let totalHalfBoardWeeks = 0;
+                
+                periods.forEach(p => {
+                  const pDays = calculatePeriodDays(p.startDate, p.endDate);
+                  const pWeeks = pDays / 7;
+                  totalFullBoardWeeks += pWeeks * (p.fullBoard || 0);
+                  totalHalfBoardWeeks += pWeeks * (p.halfBoard || 0);
+                });
+
+                const totalFull = (row.qtyPerPerson || 0) * (row.freqFull || 0) * totalFullBoardWeeks;
+                const totalHalf = (row.qtyPerPerson || 0) * (row.freqHalf || 0) * totalHalfBoardWeeks;
                 const total = totalFull + totalHalf;
                 
                 // Smart display logic for units
