@@ -408,6 +408,7 @@ export default function App() {
             meals={meals} setMeals={setMeals}
             referenceIngredients={referenceIngredients} setReferenceIngredients={setReferenceIngredients}
             apiSettings={apiSettings} setApiSettings={setApiSettings}
+            archivedEvaluations={archivedEvaluations} setArchivedEvaluations={setArchivedEvaluations}
           />
         )}
       </main>

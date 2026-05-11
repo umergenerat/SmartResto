@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Download, Upload, Copy, Check, RefreshCw, Smartphone, QrCode, Scan } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Meal, Beneficiaries, ScheduleMode, ReferenceIngredient, ApiSettings } from '../types';
+import { Meal, Beneficiaries, ScheduleMode, ReferenceIngredient, ApiSettings, ArchivedEvaluation } from '../types';
 
 interface SyncPanelProps {
   mode: ScheduleMode; setMode: (m: ScheduleMode) => void;
@@ -10,6 +10,7 @@ interface SyncPanelProps {
   meals: Meal[]; setMeals: (m: Meal[]) => void;
   referenceIngredients: ReferenceIngredient[]; setReferenceIngredients: (r: ReferenceIngredient[]) => void;
   apiSettings: ApiSettings; setApiSettings: (a: ApiSettings) => void;
+  archivedEvaluations: ArchivedEvaluation[]; setArchivedEvaluations: (e: ArchivedEvaluation[]) => void;
 }
 
 export default function SyncPanel({
@@ -17,7 +18,8 @@ export default function SyncPanel({
   beneficiaries, setBeneficiaries,
   meals, setMeals,
   referenceIngredients, setReferenceIngredients,
-  apiSettings, setApiSettings
+  apiSettings, setApiSettings,
+  archivedEvaluations, setArchivedEvaluations
 }: SyncPanelProps) {
   const [msg, setMsg] = useState('');
   const [copied, setCopied] = useState(false);
@@ -54,6 +56,7 @@ export default function SyncPanel({
       meals,
       referenceIngredients,
       apiSettings,
+      archivedEvaluations,
       timestamp: new Date().toISOString()
     };
   };
@@ -92,6 +95,7 @@ export default function SyncPanel({
     if (data.meals) setMeals(data.meals);
     if (data.referenceIngredients) setReferenceIngredients(data.referenceIngredients);
     if (data.apiSettings) setApiSettings(data.apiSettings);
+    if (data.archivedEvaluations) setArchivedEvaluations(data.archivedEvaluations);
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
