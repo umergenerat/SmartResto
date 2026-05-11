@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Meal, Beneficiaries, ScheduleMode, TotalsResult, DetailedResult, DayOfWeek, MealType, ReferenceIngredient, DishEvaluation, ApiSettings } from './types';
+import { Meal, Beneficiaries, ScheduleMode, TotalsResult, DetailedResult, DayOfWeek, MealType, ReferenceIngredient, DishEvaluation, ApiSettings, ArchivedEvaluation } from './types';
 import { analyzeMenuDocument, analyzeDishImage } from './lib/gemini';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -113,13 +113,21 @@ export default function App() {
     } catch { return { apiKey: '', useOpenModel: false }; }
   });
 
+  const [archivedEvaluations, setArchivedEvaluations] = useState<ArchivedEvaluation[]>(() => {
+    try {
+      const s = localStorage.getItem('archivedEvaluations');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
+
   React.useEffect(() => {
     localStorage.setItem('mode', JSON.stringify(mode));
     localStorage.setItem('beneficiaries', JSON.stringify(beneficiaries));
     localStorage.setItem('meals', JSON.stringify(meals));
     localStorage.setItem('refIngredients', JSON.stringify(referenceIngredients));
     localStorage.setItem('apiSettings', JSON.stringify(apiSettings));
-  }, [mode, beneficiaries, meals, referenceIngredients, apiSettings]);
+    localStorage.setItem('archivedEvaluations', JSON.stringify(archivedEvaluations));
+  }, [mode, beneficiaries, meals, referenceIngredients, apiSettings, archivedEvaluations]);
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [filterDay, setFilterDay] = useState<DayOfWeek | 'all'>('all');
@@ -196,6 +204,23 @@ export default function App() {
       setIsEvaluating(false);
       setUploadMsg('');
     }
+  };
+
+  const archiveEvaluation = () => {
+    if (!evalResult) return;
+    const refMeal = meals.find(m => m.id === evalReferenceMealId);
+    const newArchive: ArchivedEvaluation = {
+      ...evalResult,
+      id: crypto.randomUUID(),
+      date: new Date().toISOString(),
+      imagePreview: evalImagePreview,
+      mealName: refMeal?.name
+    };
+    setArchivedEvaluations([newArchive, ...archivedEvaluations]);
+  };
+
+  const deleteArchivedEvaluation = (id: string) => {
+    setArchivedEvaluations(archivedEvaluations.filter(ev => ev.id !== id));
   };
 
   // ── Totals calculation ─────────────────────────────────────────────────────
@@ -370,6 +395,9 @@ export default function App() {
             uploadMsg={uploadMsg}
             onFileChange={handleEvalFileChange}
             onEvaluate={executeEvaluation}
+            onArchive={archiveEvaluation}
+            archivedEvaluations={archivedEvaluations}
+            onDeleteArchive={deleteArchivedEvaluation}
           />
         )}
 

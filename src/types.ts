@@ -73,6 +73,14 @@ export interface DishEvaluation {
   score: number;
 }
 
+export interface ArchivedEvaluation extends DishEvaluation {
+  id: string;
+  date: string;
+  imagePreview: string | null;
+  mealName?: string;
+}
+
+
 export interface ApiSettings {
   apiKey: string;
   useOpenModel: boolean;
