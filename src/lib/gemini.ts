@@ -8,7 +8,7 @@ export const analyzeMenuDocument = async (
   onProgress?: (msg: string) => void
 ): Promise<Meal[]> => {
   if (!apiKey) {
-    throw new Error('API Key is missing');
+    throw new Error('الرجاء توفير مفتاح API.');
   }
 
   onProgress?.('جاري معالجة الملف...');
@@ -137,7 +137,7 @@ export const analyzeDishImage = async (
   apiKey: string,
   onProgress?: (msg: string) => void
 ): Promise<DishEvaluation> => {
-  if (!apiKey) throw new Error('API Key is missing');
+  if (!apiKey) throw new Error('الرجاء توفير مفتاح API.');
 
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

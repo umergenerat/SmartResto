@@ -158,7 +158,10 @@ export default function App() {
     setAiError('');
     try {
       const apiKey = apiSettings.apiKey;
-      if (!apiKey && !apiSettings.useOpenModel) throw new Error('مفتاح API غير متوفر');
+      if (!apiKey) {
+        if (apiSettings.useOpenModel) throw new Error('ميزة النماذج المفتوحة قيد التطوير. يرجى إدخال مفتاح Gemini API.');
+        throw new Error('مفتاح API غير متوفر');
+      }
       const extracted = await analyzeMenuDocument(file, apiKey, setUploadMsg);
       if (extracted.length > 0) {
         setMeals([...meals, ...extracted]);
@@ -175,14 +178,37 @@ export default function App() {
     }
   };
 
+  const compressImage = (file: File, maxWidth = 400): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleEvalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { setEvalErrorMsg('الرجاء رفع صورة صالحة'); return; }
     setEvalImage(file);
-    const reader = new FileReader();
-    reader.onload = ev => setEvalImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    compressImage(file).then(preview => setEvalImagePreview(preview));
     setEvalResult(null);
     setEvalErrorMsg('');
   };
@@ -194,7 +220,10 @@ export default function App() {
     setEvalResult(null);
     try {
       const apiKey = apiSettings.apiKey;
-      if (!apiKey && !apiSettings.useOpenModel) throw new Error('مفتاح API غير متوفر');
+      if (!apiKey) {
+        if (apiSettings.useOpenModel) throw new Error('ميزة النماذج المفتوحة قيد التطوير. يرجى إدخال مفتاح Gemini API.');
+        throw new Error('مفتاح API غير متوفر');
+      }
       const refMeal = meals.find(m => m.id === evalReferenceMealId) || null;
       const result = await analyzeDishImage(evalImage, refMeal, apiKey, setUploadMsg);
       setEvalResult(result);
